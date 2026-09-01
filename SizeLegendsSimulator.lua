@@ -117,11 +117,15 @@ local function parseVal(v)
     return m and (num * m) or num
 end
 
+-- stats stored as attributes on LocalPlayer
+-- Coins -> RealCoins, Size -> TestSize
 local function getStat(name)
-    local ls = lp:FindFirstChild("leaderstats")
-    if not ls then return 0 end
-    local v = ls:FindFirstChild(name)
-    return v and parseVal(v.Value) or 0
+    if name == "Size" then
+        return tonumber(lp:GetAttribute("TestSize")) or 0
+    elseif name == "Coins" then
+        return tonumber(lp:GetAttribute("RealCoins")) or 0
+    end
+    return 0
 end
 
 -- best owned weight by strength, owned = tick.visible true
@@ -167,9 +171,30 @@ local function getCurrentStrength()
     return bestStr
 end
 
--- read active dna cap from strengthtext "cur/max" -- way more reliable than checking tick.visible
--- tick on dna items means something else (not "equipped"), so dont use it
+-- read active dna cap from the exact DNA table values (via Tick.Visible on DnasList),
+-- NOT from StrengthText -- StrengthText is a UI string parsed through float math and
+-- loses precision at huge numbers (e.g. 4.1e18 becomes 4099999999999999488 instead of
+-- 4100000000000000000), which made getNextBuy() think an owned DNA (like Energy) was
+-- still "not owned" and endlessly retry-buy it forever. Reading straight from the DNA{}
+-- table (sourced from SizeValues, same as TOOLS/STAGES) avoids that precision loss.
+-- confirmed live: DNA items only ever expose Tick (Lock does not exist on them), so
+-- Tick.Visible == true is the sole "owned" signal -- same as tools/stages.
 local function getCurrentDNACapacity()
+    local dnasList = lp.PlayerGui:FindFirstChild("DnasList", true)
+    if dnasList then
+        local best = 0
+        for _, v in dnasList:GetChildren() do
+            if v:IsA("ImageLabel") and DNA[v.Name] then
+                local tick = v:FindFirstChild("Tick")
+                if tick and tick.Visible then
+                    local cap = DNA[v.Name].capacity
+                    if cap > best then best = cap end
+                end
+            end
+        end
+        if best > 0 then return best end
+    end
+    -- fallback: parse from StrengthText if DnasList lookup failed entirely
     local strengthText = lp.PlayerGui:FindFirstChild("StrengthText", true)
     if strengthText then
         local cur, max = strengthText.Text:match("^(%d+[%d%.]*[A-Za-z]*)/(%d+[%d%.]*[A-Za-z]*)$")
@@ -177,21 +202,6 @@ local function getCurrentDNACapacity()
             local parsed = parseVal(max)
             if parsed > 0 then return parsed end
         end
-    end
-    -- fallback: best purchased dna by lock.visible == false
-    local dnasList = lp.PlayerGui:FindFirstChild("DnasList", true)
-    if dnasList then
-        local best = 0
-        for _, v in dnasList:GetChildren() do
-            if v:IsA("ImageLabel") and DNA[v.Name] then
-                local lock = v:FindFirstChild("Lock")
-                if lock and not lock.Visible then
-                    local cap = DNA[v.Name].capacity
-                    if cap > best then best = cap end
-                end
-            end
-        end
-        if best > 0 then return best end
     end
     return 0
 end
@@ -367,8 +377,10 @@ local function getNextBuy(strength, dnaCapacity, stageMult)
         end
     end
     -- next dna: higher cap, cheapest
+    -- relative epsilon guards against float precision drift at huge numbers (1e18+),
+    -- where "owned == not owned" comparisons can flip due to rounding
     for name, d in pairs(DNA) do
-        if d.price > 0 and d.capacity > dnaCapacity and d.price < bestPrice then
+        if d.price > 0 and d.capacity > dnaCapacity * 1.0000001 and d.price < bestPrice then
             bestPrice = d.price
             best = {name=name, price=d.price, page=2, kind="dna"}
         end
@@ -523,7 +535,7 @@ local function farmLoop()
                 task.wait(1)
             end
 
-            if not farmEnabled then return end
+            if not farmEnabled then stopFreeze(); return end
 
             -- sell
             teleportToSell()
@@ -555,6 +567,7 @@ local function farmLoop()
             end
 
             -- back to farming
+            if not farmEnabled then stopFreeze(); return end
             size  = getStat("Size")
             world = getBestWorld(size)
             teleportToWorld(world)
