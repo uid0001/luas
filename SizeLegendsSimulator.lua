@@ -806,8 +806,6 @@ RunService.Heartbeat:Connect(function()
 
 end)
 
-print("[farm] loaded -- rshift to open")
-
 -- anti-afk, only fires when roblox is about to kick, always active
 local VirtualUser = game:GetService("VirtualUser")
 lp.Idled:Connect(function()
