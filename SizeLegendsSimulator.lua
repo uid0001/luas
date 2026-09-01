@@ -77,7 +77,7 @@ local farmEnabled    = false
 local antiHitEnabled = false
 local statusText     = "idle"
 local function addLog(_) end -- no logs
-local menuKey = Enum.KeyCode.RightShift
+local menuKey = Enum.KeyCode.RightControl
 local listeningForBind = false
 
 -- utils
@@ -737,7 +737,7 @@ local bindBtn = Instance.new("TextButton")
 bindBtn.Size             = UDim2.new(0, 68, 0, 28)
 bindBtn.Position         = UDim2.new(1, -(68 + 14), 0.5, -14)
 bindBtn.BackgroundColor3 = Color3.fromRGB(229, 229, 234)
-bindBtn.Text             = "RShift"
+bindBtn.Text             = "RCtrl"
 bindBtn.TextColor3       = Color3.fromRGB(10, 10, 15)
 bindBtn.Font             = Enum.Font.GothamSemibold
 bindBtn.TextSize         = 12
@@ -869,7 +869,25 @@ if isMobile then
     mobileStroke.Color     = Color3.fromRGB(200, 200, 210)
     mobileStroke.Thickness = 0.8
 
+    local mobileBtnDragged = false
+
+    mobileBtn.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.Touch then
+            mobileBtnDragged = false
+            local startPos = inp.Position
+            local movedConn
+            movedConn = inp.Changed:Connect(function()
+                if inp.UserInputState == Enum.UserInputState.End then
+                    movedConn:Disconnect()
+                elseif (inp.Position - startPos).Magnitude > 10 then
+                    mobileBtnDragged = true
+                end
+            end)
+        end
+    end)
+
     mobileBtn.MouseButton1Click:Connect(function()
+        if mobileBtnDragged then return end
         main.Visible = not main.Visible
     end)
 
