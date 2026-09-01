@@ -859,7 +859,10 @@ if isMobile then
     mobileBtn.Position         = UDim2.new(0, 20, 0.5, -25)
     mobileBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
     mobileBtn.BorderSizePixel  = 0
-    mobileBtn.Text             = ""
+    mobileBtn.Text             = "AF"
+    mobileBtn.TextColor3       = Color3.fromRGB(10, 10, 15)
+    mobileBtn.Font             = Enum.Font.GothamBold
+    mobileBtn.TextSize         = 18
     mobileBtn.ZIndex           = 10
     mobileBtn.AutoButtonColor  = false
     mobileBtn.Parent           = screenGui
