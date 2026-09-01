@@ -73,10 +73,11 @@ local function getZonePos(worldName)
 end
 
 -- state
-local farmEnabled = false
-local statusText  = "idle"
+local farmEnabled    = false
+local antiHitEnabled = false
+local statusText     = "idle"
 local function addLog(_) end -- no logs
-local menuKey = Enum.KeyCode.RightControl
+local menuKey = Enum.KeyCode.RightShift
 local listeningForBind = false
 
 -- utils
@@ -246,31 +247,63 @@ end
 
 local SELL_POS = Vector3.new(-112, -28, 2043)
 
--- freeze by zeroing vel + locking cframe every heartbeat
--- dont anchor hrp or server fires touchended and kicks us out of zone
-local freezeConnection = nil
-local freezeTarget = nil
+-- anti-hit state (declared before ensurePositionLoop so Heartbeat closure can read them)
+local antiHitConn    = nil  -- not used as connection anymore, kept for compat
+local antiHitBasePos = nil
+local antiHitNextTp  = 0
 
-local function startFreeze(pos)
-    freezeTarget = pos
+local function randomInsideZone(center)
+    -- uniform random point inside sphere of radius 60 around zone center (all XYZ axes)
+    local r     = math.random() * 60
+    local theta = math.random() * 2 * math.pi          -- azimuth
+    local phi   = math.acos(2 * math.random() - 1)     -- inclination, uniform on sphere
+    local dx    = r * math.sin(phi) * math.cos(theta)
+    local dy    = r * math.sin(phi) * math.sin(theta)
+    local dz    = r * math.cos(phi)
+    return Vector3.new(center.X + dx, center.Y + dy, center.Z + dz)
+end
+
+-- unified position lock: one Heartbeat handles both freeze and anti-hit
+-- priority: anti-hit > freeze
+local freezeConnection = nil
+local freezeTarget     = nil
+
+local function ensurePositionLoop()
     if freezeConnection then return end
     freezeConnection = RunService.Heartbeat:Connect(function()
-        if not freezeTarget then return end
         local char = lp.Character
         local hrp  = char and char:FindFirstChild("HumanoidRootPart")
         local hum  = char and char:FindFirstChildOfClass("Humanoid")
         if not hrp then return end
-        -- kill physics vel
+
+        -- always kill physics so nothing drifts
         hrp.AssemblyLinearVelocity  = Vector3.zero
         hrp.AssemblyAngularVelocity = Vector3.zero
-        -- pin position
-        hrp.CFrame = CFrame.new(freezeTarget)
-        -- stop hum moving
         if hum then
             hum.WalkSpeed = 0
             hum.JumpPower = 0
         end
+
+        -- anti-hit: teleport to random zone point on its own timer
+        if antiHitEnabled and antiHitBasePos then
+            local now = os.clock()
+            if now >= antiHitNextTp then
+                antiHitNextTp = now + 0.05  -- new random point every 50ms
+                hrp.CFrame = CFrame.new(randomInsideZone(antiHitBasePos))
+            end
+            return  -- don't pin to freezeTarget, anti-hit owns the position
+        end
+
+        -- plain freeze: pin to zone center
+        if freezeTarget then
+            hrp.CFrame = CFrame.new(freezeTarget)
+        end
     end)
+end
+
+local function startFreeze(pos)
+    freezeTarget = pos
+    ensurePositionLoop()
 end
 
 local function stopFreeze()
@@ -279,13 +312,22 @@ local function stopFreeze()
         freezeConnection:Disconnect()
         freezeConnection = nil
     end
-    -- give movement back
     local char = lp.Character
     local hum  = char and char:FindFirstChildOfClass("Humanoid")
     if hum then
         hum.WalkSpeed = 16
         hum.JumpPower = 50
     end
+end
+
+local function startAntiHit(basePos)
+    antiHitBasePos = basePos
+    antiHitNextTp  = 0  -- fire immediately on next Heartbeat tick
+end
+
+local function stopAntiHit()
+    antiHitBasePos = nil
+    antiHitNextTp  = 0
 end
 
 local function teleportToWorld(worldName)
@@ -297,12 +339,17 @@ local function teleportToWorld(worldName)
     hrp.CFrame = CFrame.new(pos)
     task.wait(0.1) -- let server register the touch
     startFreeze(pos)
+    -- kick off anti-hit jitter if enabled, centered on zone pos
+    if antiHitEnabled then
+        startAntiHit(pos)
+    end
 end
 
 local function teleportToSell()
     local char = lp.Character
     local hrp  = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
+    stopAntiHit()
     stopFreeze()
     hrp.CFrame = CFrame.new(Vector3.new(-112, -23, 2043))
     task.wait(0.8)
@@ -402,6 +449,11 @@ local function farmLoop()
     if farmRunning then return end
     farmRunning = true
     while farmEnabled do
+        -- if char is gone (died), stop and let CharacterAdded restart us
+        if not lp.Character then
+            task.wait(0.5)
+            break
+        end
         local ok, err = pcall(function()
             local coins       = getStat("Coins")
             local size        = getStat("Size")
@@ -529,27 +581,27 @@ screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent         = lp:WaitForChild("PlayerGui")
 
 -- main card
+local CARD_W = 280
 local main = Instance.new("Frame")
 main.Name             = "Main"
-main.Size             = UDim2.new(0, 260, 0, 160)
-main.Position         = UDim2.new(0.5, -130, 0.5, -80)
+main.Size             = UDim2.new(0, CARD_W, 0, 220)
+main.Position         = UDim2.new(0.5, -CARD_W/2, 0.5, -110)
 main.BackgroundColor3 = Color3.fromRGB(242, 242, 247)
 main.BorderSizePixel  = 0
 main.Visible          = true
 main.Parent           = screenGui
 Instance.new("UICorner", main).CornerRadius = UDim.new(0, 14)
 
--- thin stroke instead of shadow
 local stroke = Instance.new("UIStroke", main)
 stroke.Color     = Color3.fromRGB(200, 200, 210)
 stroke.Thickness = 0.8
 
--- drag zone / header
+-- header / drag zone
 local header = Instance.new("Frame")
-header.Name              = "Header"
-header.Size              = UDim2.new(1, 0, 0, 42)
+header.Name                   = "Header"
+header.Size                   = UDim2.new(1, 0, 0, 44)
 header.BackgroundTransparency = 1
-header.Parent            = main
+header.Parent                 = main
 
 local titleLbl = Instance.new("TextLabel")
 titleLbl.Size                   = UDim2.new(1, -20, 1, 0)
@@ -562,117 +614,111 @@ titleLbl.TextSize               = 15
 titleLbl.TextXAlignment         = Enum.TextXAlignment.Left
 titleLbl.Parent                 = header
 
--- macos red close btn
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size                   = UDim2.new(0, 13, 0, 13)
-closeBtn.Position               = UDim2.new(1, -22, 0, 14)
+closeBtn.Position               = UDim2.new(1, -22, 0, 15)
 closeBtn.BackgroundColor3       = Color3.fromRGB(255, 95, 86)
 closeBtn.Text                   = ""
 closeBtn.BorderSizePixel        = 0
 closeBtn.ZIndex                 = 10
+closeBtn.AutoButtonColor        = false
 closeBtn.Parent                 = header
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0.5, 0)
-closeBtn.AutoButtonColor = false
 
 closeBtn.MouseButton1Click:Connect(function()
-    -- kill everything and nuke gui
-    farmEnabled = false
+    farmEnabled    = false
+    antiHitEnabled = false
+    stopAntiHit()
     stopFreeze()
     screenGui:Destroy()
 end)
 
--- divider
-local divider = Instance.new("Frame")
-divider.Size             = UDim2.new(1, -16, 0, 0.5)
-divider.Position         = UDim2.new(0, 16, 0, 42)
-divider.BackgroundColor3 = Color3.fromRGB(200, 200, 210)
-divider.BorderSizePixel  = 0
-divider.Parent           = main
+-- divider helper
+local function makeDivider(parent, yPos)
+    local d = Instance.new("Frame")
+    d.Size             = UDim2.new(1, -16, 0, 0.5)
+    d.Position         = UDim2.new(0, 8, 0, yPos)
+    d.BackgroundColor3 = Color3.fromRGB(200, 200, 210)
+    d.BorderSizePixel  = 0
+    d.Parent           = parent
+end
 
--- toggle row
-local row = Instance.new("Frame")
-row.Size                   = UDim2.new(1, 0, 0, 50)
-row.Position               = UDim2.new(0, 0, 0, 43)
-row.BackgroundTransparency = 1
-row.Parent                 = main
-
-local rowLabel = Instance.new("TextLabel")
-rowLabel.Size                   = UDim2.new(1, -70, 1, 0)
-rowLabel.Position               = UDim2.new(0, 16, 0, 0)
-rowLabel.BackgroundTransparency = 1
-rowLabel.Text                   = "Auto Farm"
-rowLabel.TextColor3             = Color3.fromRGB(10, 10, 15)
-rowLabel.Font                   = Enum.Font.Gotham
-rowLabel.TextSize               = 14
-rowLabel.TextXAlignment         = Enum.TextXAlignment.Left
-rowLabel.Parent                 = row
-
-
--- ios style toggle
+-- toggle row factory
 local TOGGLE_W, TOGGLE_H = 50, 30
-local toggleTrack = Instance.new("Frame")
-toggleTrack.Size             = UDim2.new(0, TOGGLE_W, 0, TOGGLE_H)
-toggleTrack.Position         = UDim2.new(1, -(TOGGLE_W + 14), 0.5, -TOGGLE_H/2)
-toggleTrack.BackgroundColor3 = Color3.fromRGB(209, 209, 214) -- off gray
-toggleTrack.BorderSizePixel  = 0
-toggleTrack.Parent           = row
-Instance.new("UICorner", toggleTrack).CornerRadius = UDim.new(0, TOGGLE_H/2)
-
-local toggleKnob = Instance.new("Frame")
-toggleKnob.Size             = UDim2.new(0, TOGGLE_H - 4, 0, TOGGLE_H - 4)
-toggleKnob.Position         = UDim2.new(0, 2, 0, 2)
-toggleKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-toggleKnob.BorderSizePixel  = 0
-toggleKnob.ZIndex           = 2
-toggleKnob.Parent           = toggleTrack
-Instance.new("UICorner", toggleKnob).CornerRadius = UDim.new(0.5, 0)
-
 local KNOB_OFF = 2
 local KNOB_ON  = TOGGLE_W - (TOGGLE_H - 4) - 2
 
-local function setToggleVisual(on)
-    local trackColor = on and Color3.fromRGB(52, 199, 89) or Color3.fromRGB(209, 209, 214)
-    local knobX      = on and KNOB_ON or KNOB_OFF
-    TweenService:Create(toggleTrack, TweenInfo.new(0.22, Enum.EasingStyle.Quad), {
-        BackgroundColor3 = trackColor
-    }):Play()
-    TweenService:Create(toggleKnob, TweenInfo.new(0.22, Enum.EasingStyle.Quad), {
-        Position = UDim2.new(0, knobX, 0, 2)
-    }):Play()
+local function makeToggleRow(parent, yPos, labelText)
+    local row = Instance.new("Frame")
+    row.Size                   = UDim2.new(1, 0, 0, 52)
+    row.Position               = UDim2.new(0, 0, 0, yPos)
+    row.BackgroundTransparency = 1
+    row.Parent                 = parent
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size                   = UDim2.new(1, -80, 1, 0)
+    lbl.Position               = UDim2.new(0, 16, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text                   = labelText
+    lbl.TextColor3             = Color3.fromRGB(10, 10, 15)
+    lbl.Font                   = Enum.Font.Gotham
+    lbl.TextSize               = 14
+    lbl.TextXAlignment         = Enum.TextXAlignment.Left
+    lbl.Parent                 = row
+
+    local track = Instance.new("Frame")
+    track.Size             = UDim2.new(0, TOGGLE_W, 0, TOGGLE_H)
+    track.Position         = UDim2.new(1, -(TOGGLE_W + 14), 0.5, -TOGGLE_H/2)
+    track.BackgroundColor3 = Color3.fromRGB(209, 209, 214)
+    track.BorderSizePixel  = 0
+    track.Parent           = row
+    Instance.new("UICorner", track).CornerRadius = UDim.new(0, TOGGLE_H/2)
+
+    local knob = Instance.new("Frame")
+    knob.Size             = UDim2.new(0, TOGGLE_H - 4, 0, TOGGLE_H - 4)
+    knob.Position         = UDim2.new(0, KNOB_OFF, 0, 2)
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.BorderSizePixel  = 0
+    knob.ZIndex           = 2
+    knob.Parent           = track
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(0.5, 0)
+
+    local btn = Instance.new("TextButton")
+    btn.Size                   = UDim2.new(0, TOGGLE_W, 0, TOGGLE_H)
+    btn.Position               = UDim2.new(1, -(TOGGLE_W + 14), 0.5, -TOGGLE_H/2)
+    btn.BackgroundTransparency = 1
+    btn.Text                   = ""
+    btn.ZIndex                 = 3
+    btn.AutoButtonColor        = false
+    btn.Parent                 = row
+
+    local function setVisual(on)
+        TweenService:Create(track, TweenInfo.new(0.22, Enum.EasingStyle.Quad), {
+            BackgroundColor3 = on and Color3.fromRGB(52, 199, 89) or Color3.fromRGB(209, 209, 214)
+        }):Play()
+        TweenService:Create(knob, TweenInfo.new(0.22, Enum.EasingStyle.Quad), {
+            Position = UDim2.new(0, on and KNOB_ON or KNOB_OFF, 0, 2)
+        }):Play()
+    end
+
+    return btn, setVisual
 end
 
--- invisible hitbox so click area matches visual
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size                   = UDim2.new(0, TOGGLE_W, 0, TOGGLE_H)
-toggleBtn.Position               = UDim2.new(1, -(TOGGLE_W + 14), 0.5, -TOGGLE_H/2)
-toggleBtn.BackgroundTransparency = 1
-toggleBtn.Text                   = ""
-toggleBtn.ZIndex                 = 3
-toggleBtn.AutoButtonColor        = false
-toggleBtn.Parent                 = row
+-- layout: header=44, div=44, farm row=52, div=96, antihit row=52, div=148, keybind row=52, total=200+padding
+makeDivider(main, 44)
 
-toggleBtn.MouseButton1Click:Connect(function()
-    farmEnabled = not farmEnabled
-    setToggleVisual(farmEnabled)
-    if farmEnabled then
-        task.spawn(farmLoop)
-    else
-        stopFreeze()
-    end
-end)
+local farmToggleBtn, setFarmVisual = makeToggleRow(main, 44, "Auto Farm")
 
--- second divider
-local divider2 = Instance.new("Frame")
-divider2.Size             = UDim2.new(1, -16, 0, 0.5)
-divider2.Position         = UDim2.new(0, 16, 0, 93)
-divider2.BackgroundColor3 = Color3.fromRGB(200, 200, 210)
-divider2.BorderSizePixel  = 0
-divider2.Parent           = main
+makeDivider(main, 96)
+
+local antiHitToggleBtn, setAntiHitVisual = makeToggleRow(main, 96, "Anti Hit")
+
+makeDivider(main, 148)
 
 -- keybind row
 local bindRow = Instance.new("Frame")
-bindRow.Size                   = UDim2.new(1, 0, 0, 50)
-bindRow.Position               = UDim2.new(0, 0, 0, 94)
+bindRow.Size                   = UDim2.new(1, 0, 0, 52)
+bindRow.Position               = UDim2.new(0, 0, 0, 148)
 bindRow.BackgroundTransparency = 1
 bindRow.Parent                 = main
 
@@ -687,22 +733,20 @@ bindLabel.TextSize               = 14
 bindLabel.TextXAlignment         = Enum.TextXAlignment.Left
 bindLabel.Parent                 = bindRow
 
--- ios 18 pill button for current bind
 local bindBtn = Instance.new("TextButton")
 bindBtn.Size             = UDim2.new(0, 68, 0, 28)
 bindBtn.Position         = UDim2.new(1, -(68 + 14), 0.5, -14)
 bindBtn.BackgroundColor3 = Color3.fromRGB(229, 229, 234)
-bindBtn.Text             = "RCtrl"
+bindBtn.Text             = "RShift"
 bindBtn.TextColor3       = Color3.fromRGB(10, 10, 15)
 bindBtn.Font             = Enum.Font.GothamSemibold
 bindBtn.TextSize         = 12
 bindBtn.BorderSizePixel  = 0
 bindBtn.ZIndex           = 4
+bindBtn.AutoButtonColor  = false
 bindBtn.Parent           = bindRow
 Instance.new("UICorner", bindBtn).CornerRadius = UDim.new(0, 8)
-bindBtn.AutoButtonColor = false -- no hover tint
 
--- press/release squish anim
 bindBtn.MouseButton1Down:Connect(function()
     TweenService:Create(bindBtn, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         Size = UDim2.new(0, 62, 0, 25)
@@ -714,13 +758,12 @@ bindBtn.MouseButton1Up:Connect(function()
     }):Play()
 end)
 
--- dots anim while waiting for key input
 local dotsConn = nil
 local function startDotsAnim()
     local t = 0
     dotsConn = RunService.Heartbeat:Connect(function(dt)
         t = t + dt
-        local frame = math.floor(t * 2) % 3 + 1 -- 1,2,3 loop
+        local frame = math.floor(t * 2) % 3 + 1
         bindBtn.Text = string.rep(".", frame)
     end)
 end
@@ -732,78 +775,138 @@ bindBtn.MouseButton1Click:Connect(function()
     if listeningForBind then return end
     listeningForBind = true
     startDotsAnim()
-    -- timeout after 5s if they dont press anything
     task.delay(5, function()
         if listeningForBind then
             listeningForBind = false
             stopDotsAnim()
-            local name = tostring(menuKey):gsub("Enum%.KeyCode%.", "")
-            bindBtn.Text = name
+            bindBtn.Text = tostring(menuKey):gsub("Enum%.KeyCode%.", "")
         end
     end)
 end)
 
--- drag
-local dragging, dragStart, frameStart = false, nil, nil
-
-header.InputBegan:Connect(function(inp)
-    if inp.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging   = true
-        dragStart  = inp.Position
-        frameStart = main.Position
+-- wire toggle buttons
+farmToggleBtn.MouseButton1Click:Connect(function()
+    farmEnabled = not farmEnabled
+    setFarmVisual(farmEnabled)
+    if farmEnabled then
+        task.spawn(farmLoop)
+    else
+        stopAntiHit()
+        stopFreeze()
     end
 end)
 
-UserInputService.InputChanged:Connect(function(inp)
-    if dragging and inp.UserInputType == Enum.UserInputType.MouseMovement then
-        local d = inp.Position - dragStart
-        main.Position = UDim2.new(
-            frameStart.X.Scale, frameStart.X.Offset + d.X,
-            frameStart.Y.Scale, frameStart.Y.Offset + d.Y
-        )
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(inp)
-    if inp.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = false
-    end
-end)
-
--- hotkey, dynamic bind, no gpe guard so it fires even when game has focus
-UserInputService.InputBegan:Connect(function(inp, gpe)
-    if listeningForBind then
-        -- capture next key as new bind
-        local newKey = nil
-        if inp.UserInputType == Enum.UserInputType.Keyboard then
-            newKey = inp.KeyCode
+antiHitToggleBtn.MouseButton1Click:Connect(function()
+    antiHitEnabled = not antiHitEnabled
+    setAntiHitVisual(antiHitEnabled)
+    if antiHitEnabled then
+        -- if farm is already frozen in a zone, kick off anti-hit immediately
+        if farmEnabled and freezeTarget then
+            startAntiHit(freezeTarget)
         end
-        if newKey and newKey ~= Enum.KeyCode.Unknown then
-            menuKey = newKey
-            listeningForBind = false
-            stopDotsAnim()
-            -- strip enum prefix, shorten common keys
-            local raw = tostring(newKey):gsub("Enum%.KeyCode%.", "")
-            local shorts = {
-                RightShift="RShift", LeftShift="LShift",
-                RightControl="RCtrl", LeftControl="LCtrl",
-                RightAlt="RAlt", LeftAlt="LAlt",
-                RightMeta="RMeta", LeftMeta="LMeta",
-                BackSpace="Back", Return="Enter",
-            }
-            bindBtn.Text = shorts[raw] or raw
-        end
-        return
+    else
+        stopAntiHit()
     end
-    if not gpe and inp.KeyCode == menuKey then
+end)
+
+-- detect mobile
+local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+if isMobile then
+    bindRow.Visible = false
+    main.Size = UDim2.new(0, CARD_W, 0, 160)
+end
+
+-- generic drag helper, works for both mouse and touch
+local function makeDraggable(handle, target)
+    local dragging   = false
+    local dragStart  = nil
+    local frameStart = nil
+
+    handle.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1
+        or inp.UserInputType == Enum.UserInputType.Touch then
+            dragging   = true
+            dragStart  = inp.Position
+            frameStart = target.Position
+            inp.Changed:Connect(function()
+                if inp.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(inp)
+        if not dragging then return end
+        if inp.UserInputType == Enum.UserInputType.MouseMovement
+        or inp.UserInputType == Enum.UserInputType.Touch then
+            local d = inp.Position - dragStart
+            target.Position = UDim2.new(
+                frameStart.X.Scale, frameStart.X.Offset + d.X,
+                frameStart.Y.Scale, frameStart.Y.Offset + d.Y
+            )
+        end
+    end)
+end
+
+makeDraggable(header, main)
+
+if isMobile then
+    local mobileBtn = Instance.new("TextButton")
+    mobileBtn.Name             = "MobileToggle"
+    mobileBtn.Size             = UDim2.new(0, 50, 0, 50)
+    mobileBtn.Position         = UDim2.new(0, 20, 0.5, -25)
+    mobileBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    mobileBtn.BorderSizePixel  = 0
+    mobileBtn.Text             = ""
+    mobileBtn.ZIndex           = 10
+    mobileBtn.AutoButtonColor  = false
+    mobileBtn.Parent           = screenGui
+    Instance.new("UICorner", mobileBtn).CornerRadius = UDim.new(0, 12)
+
+    local mobileStroke = Instance.new("UIStroke", mobileBtn)
+    mobileStroke.Color     = Color3.fromRGB(200, 200, 210)
+    mobileStroke.Thickness = 0.8
+
+    mobileBtn.MouseButton1Click:Connect(function()
         main.Visible = not main.Visible
-    end
-end)
+    end)
 
--- update loop (placeholder)
+    makeDraggable(mobileBtn, mobileBtn)
+end
+
+if not isMobile then
+    UserInputService.InputBegan:Connect(function(inp, gpe)
+        if listeningForBind then
+            local newKey = nil
+            if inp.UserInputType == Enum.UserInputType.Keyboard then
+                newKey = inp.KeyCode
+            end
+            if newKey and newKey ~= Enum.KeyCode.Unknown then
+                menuKey = newKey
+                listeningForBind = false
+                stopDotsAnim()
+                local raw = tostring(newKey):gsub("Enum%.KeyCode%.", "")
+                local shorts = {
+                    RightShift="RShift", LeftShift="LShift",
+                    RightControl="RCtrl", LeftControl="LCtrl",
+                    RightAlt="RAlt", LeftAlt="LAlt",
+                    RightMeta="RMeta", LeftMeta="LMeta",
+                    BackSpace="Back", Return="Enter",
+                }
+                bindBtn.Text = shorts[raw] or raw
+            end
+            return
+        end
+        if not gpe and inp.KeyCode == menuKey then
+            main.Visible = not main.Visible
+        end
+    end)
+end
+
 RunService.Heartbeat:Connect(function()
     if not main.Visible then return end
-
 end)
 
 -- anti-afk, only fires when roblox is about to kick, always active
@@ -815,23 +918,44 @@ lp.Idled:Connect(function()
 end)
 
 -- respawn handler
--- death drops freeze and stalls farmloop on nil char
--- wait for new char, rewire freeze, restart loop if farm was on
 lp.CharacterAdded:Connect(function(char)
-    -- wait for hrp
+    -- wait for hrp and humanoid to exist
     local hrp = char:WaitForChild("HumanoidRootPart", 10)
-    if not hrp then return end
+    local hum = char:WaitForChild("Humanoid", 10)
+    if not hrp or not hum then return end
 
-    -- old freeze conn is dead, drop it
+    -- kill old freeze conn, its holding a ref to the dead char
     if freezeConnection then
         freezeConnection:Disconnect()
         freezeConnection = nil
     end
     freezeTarget = nil
 
-    -- restart if farm was running
+    -- farmRunning might still be true from the old loop that died mid-pcall
+    -- reset it so farmLoop() doesnt exit immediately
+    farmRunning = false
+
     if farmEnabled then
-        task.wait(1) -- let server finish spawning char
-        task.spawn(farmLoop)
+        -- wait for humanoid to fully land before we teleport
+        -- Died fires after char is added, wait for it to flip back to None
+        local died = false
+        local conn
+        conn = hum.Died:Connect(function() died = true end)
+
+        -- wait until health is full and state is Running/Idle (not falling)
+        local t = 0
+        repeat
+            task.wait(0.1)
+            t = t + 0.1
+        until (hum.Health >= hum.MaxHealth * 0.9
+            and hum:GetState() ~= Enum.HumanoidStateType.Freefall
+            and hum:GetState() ~= Enum.HumanoidStateType.Jumping)
+            or t > 6
+
+        conn:Disconnect()
+
+        if farmEnabled and not died then
+            task.spawn(farmLoop)
+        end
     end
 end)
