@@ -189,16 +189,20 @@ function Library:CreateWindow(config)
     ScreenGui.ResetOnSpawn = false
     ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-    pcall(function()
-        if gethui then
-            ScreenGui.Parent = gethui()
-        elseif syn and syn.protect_gui then
-            syn.protect_gui(ScreenGui)
-            ScreenGui.Parent = CoreGui
-        else
-            ScreenGui.Parent = CoreGui
-        end
-    end)
+    if config.Parent then
+        ScreenGui.Parent = config.Parent
+    else
+        pcall(function()
+            if gethui then
+                ScreenGui.Parent = gethui()
+            elseif syn and syn.protect_gui then
+                syn.protect_gui(ScreenGui)
+                ScreenGui.Parent = CoreGui
+            else
+                ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+            end
+        end)
+    end
     if not ScreenGui.Parent then
         ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
     end
@@ -935,7 +939,6 @@ function Library:CreateWindow(config)
             Row.Text = ""
             Row.ClipsDescendants = false
             Row.ZIndex = zIndex or 1
-            Row.Parent = Page
 
             local RowCorner = Instance.new("UICorner")
             RowCorner.CornerRadius = UDim.new(0, 12)
@@ -974,13 +977,19 @@ function Library:CreateWindow(config)
             end
 
             Row.MouseEnter:Connect(function()
-                TweenService:Create(Row, TweenFast, {BackgroundColor3 = Library.Theme.HoverLight}):Play()
-                TweenService:Create(RowStroke, TweenFast, {Transparency = 0.2}):Play()
+                pcall(function()
+                    TweenService:Create(Row, TweenFast, {BackgroundColor3 = Library.Theme.HoverLight}):Play()
+                    TweenService:Create(RowStroke, TweenFast, {Transparency = 0.2}):Play()
+                end)
             end)
             Row.MouseLeave:Connect(function()
-                TweenService:Create(Row, TweenFast, {BackgroundColor3 = Library.Theme.CardBg}):Play()
-                TweenService:Create(RowStroke, TweenFast, {Transparency = 0.6}):Play()
+                pcall(function()
+                    TweenService:Create(Row, TweenFast, {BackgroundColor3 = Library.Theme.CardBg}):Play()
+                    TweenService:Create(RowStroke, TweenFast, {Transparency = 0.6}):Play()
+                end)
             end)
+
+            Row.Parent = Page
 
             return Row, RowStroke, TitleLabel
         end
@@ -1427,11 +1436,6 @@ function Library:CreateWindow(config)
                     OptBtn.MouseButton1Click:Connect(function()
                         SelectOption(optName)
                     end)
-                    OptBtn.InputBegan:Connect(function(input)
-                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                            SelectOption(optName)
-                        end
-                    end)
                 end
 
                 if isOpen then
@@ -1442,7 +1446,9 @@ function Library:CreateWindow(config)
 
             RefreshOptions(options)
 
+            local lastToggleTime = 0
             ComboMain.MouseButton1Click:Connect(function()
+                lastToggleTime = os.clock()
                 if isOpen then CloseDrop() else OpenDrop() end
             end)
 
@@ -1450,6 +1456,7 @@ function Library:CreateWindow(config)
                 if isOpen and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
                     task.defer(function()
                         if not isOpen then return end
+                        if os.clock() - lastToggleTime < 0.05 then return end
                         local mousePos = UserInputService:GetMouseLocation()
                         local cPos = ComboContainer.AbsolutePosition
                         local cSize = ComboContainer.AbsoluteSize
