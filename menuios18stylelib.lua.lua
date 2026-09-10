@@ -46,6 +46,120 @@ local TweenFast = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection
 local TweenSmooth = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 local TweenSpring = TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
+-- ===================================================
+-- Lucide Icons System (WindUI Compatible)
+-- Supports loading from GitHub raw, readfile("icons.lua"), or preloaded table
+-- ===================================================
+Library.Icons = {}
+Library.IconsLoaded = false
+Library.IconsUrl = "https://raw.githubusercontent.com/Footagesus/Icons/46d30c19ba7bc601d6ec794a48dc3a89568b1eec/lucide/dist/Icons.lua"
+
+function Library:LoadIcons(customSource)
+    if Library.IconsLoaded and next(Library.Icons) ~= nil then
+        return Library.Icons
+    end
+
+    local loaded = false
+
+    -- 1. If custom table is passed directly
+    if type(customSource) == "table" then
+        Library.Icons = customSource
+        Library.IconsLoaded = true
+        return Library.Icons
+    end
+
+    -- 2. Try loading via readfile / loadfile (local file fallback, e.g. "icons.lua")
+    pcall(function()
+        if readfile and isfile and isfile("icons.lua") then
+            local chunk = loadstring(readfile("icons.lua"))
+            if chunk then
+                local res = chunk()
+                if type(res) == "table" then
+                    Library.Icons = res
+                    Library.IconsLoaded = true
+                    loaded = true
+                end
+            end
+        end
+    end)
+
+    if loaded then return Library.Icons end
+
+    -- 3. Load dynamically from GitHub raw via game:HttpGet / request
+    pcall(function()
+        local url = (type(customSource) == "string" and customSource) or Library.IconsUrl
+        local content = nil
+        if game and game.HttpGet then
+            content = game:HttpGet(url)
+        elseif request then
+            local response = request({Url = url, Method = "GET"})
+            content = response and response.Body
+        elseif syn and syn.request then
+            local response = syn.request({Url = url, Method = "GET"})
+            content = response and response.Body
+        elseif http_request then
+            local response = http_request({Url = url, Method = "GET"})
+            content = response and response.Body
+        end
+
+        if content and #content > 0 then
+            local fn = loadstring(content)
+            if fn then
+                local iconMap = fn()
+                if type(iconMap) == "table" then
+                    Library.Icons = iconMap
+                    Library.IconsLoaded = true
+                    loaded = true
+                end
+            end
+        end
+    end)
+
+    return Library.Icons
+end
+
+-- Resolve an icon input into a valid rbxassetid url:
+-- Handles "lucide:name", "name", "rbxassetid://12345", or raw numbers.
+-- If no icon specified, returns nil / "" (no forced default!).
+function Library:GetIcon(iconInput)
+    if not iconInput then return "" end
+    if type(iconInput) == "number" then
+        return "rbxassetid://" .. tostring(iconInput)
+    end
+    if type(iconInput) ~= "string" or iconInput == "" then
+        return ""
+    end
+
+    -- Direct Roblox asset URL or path
+    if iconInput:sub(1, 13) == "rbxassetid://" or iconInput:sub(1, 11) == "roblox.com/" or iconInput:find("://") then
+        return iconInput
+    end
+
+    -- Strip "lucide:" prefix if present (WindUI syntax compatibility)
+    local cleanName = iconInput
+    if cleanName:sub(1, 7) == "lucide:" then
+        cleanName = cleanName:sub(8)
+    end
+    cleanName = string.lower(cleanName:gsub("^%s+", ""):gsub("%s+$", ""))
+
+    -- Auto-load icons map if empty
+    if not Library.IconsLoaded or next(Library.Icons) == nil then
+        Library:LoadIcons()
+    end
+
+    -- Lookup in Lucide icon map
+    if Library.Icons and Library.Icons[cleanName] then
+        return Library.Icons[cleanName]
+    end
+
+    -- Fallback: if string is all digits
+    if tonumber(cleanName) then
+        return "rbxassetid://" .. cleanName
+    end
+
+    return ""
+end
+
 function Library:CreateWindow(config)
     config = config or {}
     local windowTitle = config.Title or "iOS 18 Menu"
@@ -518,7 +632,8 @@ function Library:CreateWindow(config)
         local title = notifConfig.Title or "Notification"
         local message = notifConfig.Message or notifConfig.Text or ""
         local duration = notifConfig.Duration or 3
-        local icon = notifConfig.Icon or "rbxassetid://10709751939"
+        local iconAsset = Library:GetIcon(notifConfig.Icon)
+        local hasIcon = (iconAsset ~= nil and iconAsset ~= "")
         local notifColor = notifConfig.Color or currentAccent
 
         local Card = Instance.new("CanvasGroup")
@@ -541,16 +656,21 @@ function Library:CreateWindow(config)
         CardStroke.Transparency = 0.4
         CardStroke.Parent = Card
 
-        local IconImg = Instance.new("ImageLabel")
-        IconImg.Name = "NotifIcon"
-        IconImg.Size = UDim2.new(0, 22, 0, 22)
-        IconImg.Position = UDim2.new(0, 14, 0.5, 0)
-        IconImg.AnchorPoint = Vector2.new(0, 0.5)
-        IconImg.BackgroundTransparency = 1
-        IconImg.Image = icon
-        IconImg.ImageColor3 = notifColor
-        IconImg.ZIndex = 302
-        IconImg.Parent = Card
+        if hasIcon then
+            local IconImg = Instance.new("ImageLabel")
+            IconImg.Name = "NotifIcon"
+            IconImg.Size = UDim2.new(0, 22, 0, 22)
+            IconImg.Position = UDim2.new(0, 14, 0.5, 0)
+            IconImg.AnchorPoint = Vector2.new(0, 0.5)
+            IconImg.BackgroundTransparency = 1
+            IconImg.Image = iconAsset
+            IconImg.ImageColor3 = notifColor
+            IconImg.ZIndex = 302
+            IconImg.Parent = Card
+        end
+
+        local textStartX = hasIcon and 46 or 16
+        local textWidthOffset = hasIcon and -56 or -26
 
         local TitleLbl = Instance.new("TextLabel")
         TitleLbl.Name = "NotifTitle"
@@ -560,8 +680,8 @@ function Library:CreateWindow(config)
         TitleLbl.TextColor3 = notifColor
         TitleLbl.TextXAlignment = Enum.TextXAlignment.Left
         TitleLbl.BackgroundTransparency = 1
-        TitleLbl.Position = UDim2.new(0, 46, 0, 8)
-        TitleLbl.Size = UDim2.new(1, -56, 0, 16)
+        TitleLbl.Position = UDim2.new(0, textStartX, 0, 8)
+        TitleLbl.Size = UDim2.new(1, textWidthOffset, 0, 16)
         TitleLbl.ZIndex = 302
         TitleLbl.Parent = Card
 
@@ -573,8 +693,8 @@ function Library:CreateWindow(config)
         MsgLbl.TextColor3 = Library.Theme.TextSecondary
         MsgLbl.TextXAlignment = Enum.TextXAlignment.Left
         MsgLbl.BackgroundTransparency = 1
-        MsgLbl.Position = UDim2.new(0, 46, 0, 26)
-        MsgLbl.Size = UDim2.new(1, -56, 0, 18)
+        MsgLbl.Position = UDim2.new(0, textStartX, 0, 26)
+        MsgLbl.Size = UDim2.new(1, textWidthOffset, 0, 18)
         MsgLbl.ZIndex = 302
         MsgLbl.Parent = Card
 
@@ -652,7 +772,9 @@ function Library:CreateWindow(config)
 
     function Window:CreateTab(tabConfig)
         local tabName = tabConfig.Name or "Tab"
-        local iconAssetId = tabConfig.Icon or "rbxassetid://7733774602"
+        local rawIcon = tabConfig.Icon
+        local iconAssetId = Library:GetIcon(rawIcon)
+        local hasIcon = (iconAssetId ~= nil and iconAssetId ~= "")
         local order = tabConfig.Order or (#TabButtonsLayout:GetChildren())
 
         -- Tab Button
@@ -676,15 +798,18 @@ function Library:CreateWindow(config)
         Stroke.Transparency = 1
         Stroke.Parent = TabBtn
 
-        local TabIcon = Instance.new("ImageLabel")
-        TabIcon.Name = "TabIcon"
-        TabIcon.Image = iconAssetId
-        TabIcon.Size = UDim2.new(0, 17, 0, 17)
-        TabIcon.Position = UDim2.new(0, 12, 0.5, 0)
-        TabIcon.AnchorPoint = Vector2.new(0, 0.5)
-        TabIcon.BackgroundTransparency = 1
-        TabIcon.ImageColor3 = Library.Theme.TextSecondary
-        TabIcon.Parent = TabBtn
+        local TabIcon = nil
+        if hasIcon then
+            TabIcon = Instance.new("ImageLabel")
+            TabIcon.Name = "TabIcon"
+            TabIcon.Image = iconAssetId
+            TabIcon.Size = UDim2.new(0, 17, 0, 17)
+            TabIcon.Position = UDim2.new(0, 12, 0.5, 0)
+            TabIcon.AnchorPoint = Vector2.new(0, 0.5)
+            TabIcon.BackgroundTransparency = 1
+            TabIcon.ImageColor3 = Library.Theme.TextSecondary
+            TabIcon.Parent = TabBtn
+        end
 
         local TabLabel = Instance.new("TextLabel")
         TabLabel.Name = "TabLabel"
@@ -694,8 +819,8 @@ function Library:CreateWindow(config)
         TabLabel.TextColor3 = Library.Theme.TextSecondary
         TabLabel.TextXAlignment = Enum.TextXAlignment.Left
         TabLabel.BackgroundTransparency = 1
-        TabLabel.Position = UDim2.new(0, 37, 0, 0)
-        TabLabel.Size = UDim2.new(1, -45, 1, 0)
+        TabLabel.Position = UDim2.new(0, hasIcon and 37 or 14, 0, 0)
+        TabLabel.Size = UDim2.new(1, hasIcon and -45 or -22, 1, 0)
         TabLabel.Parent = TabBtn
 
         self.TabButtons[tabName] = {
@@ -1128,7 +1253,8 @@ function Library:CreateWindow(config)
 
             local Chevron = Instance.new("ImageLabel")
             Chevron.Name = "Chevron"
-            Chevron.Image = "rbxassetid://7733717447"
+            local chevIcon = Library:GetIcon("chevron-down")
+            Chevron.Image = (chevIcon ~= "") and chevIcon or "rbxassetid://7733717447"
             Chevron.ImageColor3 = Library.Theme.TextSecondary
             Chevron.BackgroundTransparency = 1
             Chevron.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1514,7 +1640,8 @@ function Library:CreateWindow(config)
             SearchIcon.Position = UDim2.new(0, 12, 0.5, 0)
             SearchIcon.AnchorPoint = Vector2.new(0, 0.5)
             SearchIcon.BackgroundTransparency = 1
-            SearchIcon.Image = "rbxassetid://10734943674"
+            local sIcon = Library:GetIcon("search")
+            SearchIcon.Image = (sIcon ~= "") and sIcon or "rbxassetid://10734943674"
             SearchIcon.ImageColor3 = Library.Theme.TextSecondary
             SearchIcon.Parent = SearchBarFrame
 
@@ -1628,7 +1755,8 @@ function Library:CreateWindow(config)
 
             local Chevron = Instance.new("ImageLabel")
             Chevron.Name = "Chevron"
-            Chevron.Image = "rbxassetid://7733717447"
+            local chevIcon = Library:GetIcon("chevron-down")
+            Chevron.Image = (chevIcon ~= "") and chevIcon or "rbxassetid://7733717447"
             Chevron.ImageColor3 = Library.Theme.TextSecondary
             Chevron.BackgroundTransparency = 1
             Chevron.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1914,7 +2042,7 @@ function Library:CreateWindow(config)
 
             local Chevron = Instance.new("ImageLabel")
             Chevron.Name = "Chevron"
-            Chevron.Image = "rbxassetid://7733717447"
+            Chevron.Image = Library:GetIcon("chevron-down")
             Chevron.ImageColor3 = Library.Theme.TextSecondary
             Chevron.BackgroundTransparency = 1
             Chevron.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -2100,7 +2228,8 @@ function Library:CreateWindow(config)
             local title = bannerConfig.Title or "WARNING"
             local desc = bannerConfig.Desc or ""
             local bannerColor = bannerConfig.Color or Library.Theme.AccentRed
-            local icon = bannerConfig.Icon or "rbxassetid://10709751939"
+            local iconAsset = Library:GetIcon(bannerConfig.Icon)
+            local hasIcon = (iconAsset ~= nil and iconAsset ~= "")
             local layoutOrder = bannerConfig.LayoutOrder or 0
 
             local Card = Instance.new("Frame")
@@ -2121,15 +2250,20 @@ function Library:CreateWindow(config)
             Stroke.Transparency = 0.5
             Stroke.Parent = Card
 
-            local IconImg = Instance.new("ImageLabel")
-            IconImg.Name = "BannerIcon"
-            IconImg.Image = icon
-            IconImg.ImageColor3 = bannerColor
-            IconImg.BackgroundTransparency = 1
-            IconImg.Position = UDim2.new(0, 14, 0.5, 0)
-            IconImg.AnchorPoint = Vector2.new(0, 0.5)
-            IconImg.Size = UDim2.new(0, 22, 0, 22)
-            IconImg.Parent = Card
+            if hasIcon then
+                local IconImg = Instance.new("ImageLabel")
+                IconImg.Name = "BannerIcon"
+                IconImg.Image = iconAsset
+                IconImg.ImageColor3 = bannerColor
+                IconImg.BackgroundTransparency = 1
+                IconImg.Position = UDim2.new(0, 14, 0.5, 0)
+                IconImg.AnchorPoint = Vector2.new(0, 0.5)
+                IconImg.Size = UDim2.new(0, 22, 0, 22)
+                IconImg.Parent = Card
+            end
+
+            local startX = hasIcon and 44 or 16
+            local widthOffset = hasIcon and -54 or -26
 
             local TitleLabel = Instance.new("TextLabel")
             TitleLabel.Name = "BannerTitle"
@@ -2139,8 +2273,8 @@ function Library:CreateWindow(config)
             TitleLabel.TextColor3 = bannerColor
             TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
             TitleLabel.BackgroundTransparency = 1
-            TitleLabel.Position = UDim2.new(0, 44, 0, 9)
-            TitleLabel.Size = UDim2.new(1, -54, 0, 16)
+            TitleLabel.Position = UDim2.new(0, startX, 0, 9)
+            TitleLabel.Size = UDim2.new(1, widthOffset, 0, 16)
             TitleLabel.Parent = Card
 
             local DescLabel = Instance.new("TextLabel")
@@ -2152,8 +2286,8 @@ function Library:CreateWindow(config)
             DescLabel.TextXAlignment = Enum.TextXAlignment.Left
             DescLabel.TextWrapped = true
             DescLabel.BackgroundTransparency = 1
-            DescLabel.Position = UDim2.new(0, 44, 0, 27)
-            DescLabel.Size = UDim2.new(1, -54, 0, 30)
+            DescLabel.Position = UDim2.new(0, startX, 0, 27)
+            DescLabel.Size = UDim2.new(1, widthOffset, 0, 30)
             DescLabel.Parent = Card
 
             return {
@@ -2219,7 +2353,7 @@ function Library:CreateWindow(config)
 
                 local IconImg = Instance.new("ImageLabel")
                 IconImg.Name = "SlotIcon"
-                IconImg.Image = image
+                IconImg.Image = Library:GetIcon(image)
                 IconImg.ImageColor3 = color
                 IconImg.BackgroundTransparency = 1
                 IconImg.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -2227,9 +2361,12 @@ function Library:CreateWindow(config)
                 IconImg.Size = UDim2.new(0.85, 0, 0.85, 0)
                 IconImg.Parent = SlotBtn
 
+                local defaultBadgeIcon = Library:GetIcon("x")
+                if defaultBadgeIcon == "" then defaultBadgeIcon = "rbxassetid://10747384394" end
+
                 local Badge = Instance.new("ImageLabel")
                 Badge.Name = "SlotBadge"
-                Badge.Image = "rbxassetid://10747384394"
+                Badge.Image = defaultBadgeIcon
                 Badge.ImageColor3 = Library.Theme.AccentRed
                 Badge.BackgroundTransparency = 1
                 Badge.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -2260,9 +2397,13 @@ function Library:CreateWindow(config)
                     Badge = Badge,
                     Stroke = SlotStroke,
                     Name = name,
-                    SetBadge = function(visible, badgeColor)
+                    SetBadge = function(visible, badgeColor, customBadgeIcon)
                         Badge.Visible = visible
                         if badgeColor then Badge.ImageColor3 = badgeColor end
+                        if customBadgeIcon then
+                            local resolvedBadge = Library:GetIcon(customBadgeIcon)
+                            if resolvedBadge ~= "" then Badge.Image = resolvedBadge end
+                        end
                         TweenService:Create(SlotStroke, TweenFast, {
                             Color = visible and (badgeColor or Library.Theme.AccentRed) or Library.Theme.CardBorder,
                             Transparency = visible and 0.2 or 0.4
