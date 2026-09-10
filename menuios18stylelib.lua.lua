@@ -31,6 +31,16 @@ Library.Theme = {
     DropdownBg = Color3.fromRGB(30, 30, 36)
 }
 
+Library.AccentColors = {
+    {Name = "Blue", NameRu = "Синий", Color = Color3.fromRGB(10, 132, 255)},
+    {Name = "Purple", NameRu = "Фиолетовый", Color = Color3.fromRGB(175, 82, 222)},
+    {Name = "Green", NameRu = "Зеленый", Color = Color3.fromRGB(48, 209, 88)},
+    {Name = "Orange", NameRu = "Оранжевый", Color = Color3.fromRGB(255, 159, 10)},
+    {Name = "Pink", NameRu = "Розовый", Color = Color3.fromRGB(255, 55, 95)},
+    {Name = "Red", NameRu = "Красный", Color = Color3.fromRGB(255, 69, 58)},
+    {Name = "Cyan", NameRu = "Бирюзовый", Color = Color3.fromRGB(100, 210, 255)}
+}
+
 -- Tween presets
 local TweenFast = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local TweenSmooth = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
@@ -487,6 +497,105 @@ function Library:CreateWindow(config)
         TweenService:Create(DialogCard, TweenSpring, {Size = UDim2.new(0, 320, 0, 160)}):Play()
     end
 
+    -- Notification Overlay (iOS Dynamic Banner at Top Center)
+    local NotificationContainer = Instance.new("Frame")
+    NotificationContainer.Name = "NotificationContainer"
+    NotificationContainer.Size = UDim2.new(0, 320, 1, 0)
+    NotificationContainer.Position = UDim2.new(0.5, 0, 0, 16)
+    NotificationContainer.AnchorPoint = Vector2.new(0.5, 0)
+    NotificationContainer.BackgroundTransparency = 1
+    NotificationContainer.ZIndex = 300
+    NotificationContainer.Parent = ScreenGui
+
+    local NotifLayout = Instance.new("UIListLayout")
+    NotifLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    NotifLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    NotifLayout.Padding = UDim.new(0, 8)
+    NotifLayout.Parent = NotificationContainer
+
+    local function Notify(notifConfig)
+        notifConfig = notifConfig or {}
+        local title = notifConfig.Title or "Notification"
+        local message = notifConfig.Message or notifConfig.Text or ""
+        local duration = notifConfig.Duration or 3
+        local icon = notifConfig.Icon or "rbxassetid://10709751939"
+        local notifColor = notifConfig.Color or currentAccent
+
+        local Card = Instance.new("CanvasGroup")
+        Card.Name = "NotifCard"
+        Card.Size = UDim2.new(1, 0, 0, 52)
+        Card.BackgroundColor3 = Color3.fromRGB(24, 24, 28)
+        Card.BorderSizePixel = 0
+        Card.GroupTransparency = 1
+        Card.Position = UDim2.new(0, 0, 0, -20)
+        Card.ZIndex = 301
+        Card.Parent = NotificationContainer
+
+        local CardCorner = Instance.new("UICorner")
+        CardCorner.CornerRadius = UDim.new(0, 14)
+        CardCorner.Parent = Card
+
+        local CardStroke = Instance.new("UIStroke")
+        CardStroke.Color = notifColor
+        CardStroke.Thickness = 1.2
+        CardStroke.Transparency = 0.4
+        CardStroke.Parent = Card
+
+        local IconImg = Instance.new("ImageLabel")
+        IconImg.Name = "NotifIcon"
+        IconImg.Size = UDim2.new(0, 22, 0, 22)
+        IconImg.Position = UDim2.new(0, 14, 0.5, 0)
+        IconImg.AnchorPoint = Vector2.new(0, 0.5)
+        IconImg.BackgroundTransparency = 1
+        IconImg.Image = icon
+        IconImg.ImageColor3 = notifColor
+        IconImg.ZIndex = 302
+        IconImg.Parent = Card
+
+        local TitleLbl = Instance.new("TextLabel")
+        TitleLbl.Name = "NotifTitle"
+        TitleLbl.Text = title
+        TitleLbl.Font = Enum.Font.GothamBold
+        TitleLbl.TextSize = 13
+        TitleLbl.TextColor3 = notifColor
+        TitleLbl.TextXAlignment = Enum.TextXAlignment.Left
+        TitleLbl.BackgroundTransparency = 1
+        TitleLbl.Position = UDim2.new(0, 46, 0, 8)
+        TitleLbl.Size = UDim2.new(1, -56, 0, 16)
+        TitleLbl.ZIndex = 302
+        TitleLbl.Parent = Card
+
+        local MsgLbl = Instance.new("TextLabel")
+        MsgLbl.Name = "NotifMsg"
+        MsgLbl.Text = message
+        MsgLbl.Font = Enum.Font.GothamMedium
+        MsgLbl.TextSize = 11.5
+        MsgLbl.TextColor3 = Library.Theme.TextSecondary
+        MsgLbl.TextXAlignment = Enum.TextXAlignment.Left
+        MsgLbl.BackgroundTransparency = 1
+        MsgLbl.Position = UDim2.new(0, 46, 0, 26)
+        MsgLbl.Size = UDim2.new(1, -56, 0, 18)
+        MsgLbl.ZIndex = 302
+        MsgLbl.Parent = Card
+
+        -- Slide down and fade in
+        TweenService:Create(Card, TweenSpring, {GroupTransparency = 0}):Play()
+        TweenService:Create(CardStroke, TweenFast, {Transparency = 0.3}):Play()
+
+        task.delay(duration, function()
+            if Card and Card.Parent then
+                local fadeOut = TweenService:Create(Card, TweenFast, {
+                    GroupTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 0)
+                })
+                fadeOut:Play()
+                fadeOut.Completed:Connect(function()
+                    pcall(function() Card:Destroy() end)
+                end)
+            end
+        end)
+    end
+
     -- Tab management
     local Window = {
         ScreenGui = ScreenGui,
@@ -498,14 +607,14 @@ function Library:CreateWindow(config)
         Connections = Connections,
         RegisterAccentListener = RegisterAccentListener,
         SetAccent = SetAccent,
-        OpenConfirmModal = OpenConfirmModal
+        GetAccent = function() return currentAccent end,
+        OpenConfirmModal = OpenConfirmModal,
+        Notify = Notify
     }
 
-    local menuOpen = true
     table.insert(Connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if not gameProcessed and input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == menuKey then
-            menuOpen = not menuOpen
-            MainFrame.Visible = menuOpen
+            Window:Toggle()
         end
     end))
 
@@ -1393,7 +1502,7 @@ function Library:CreateWindow(config)
             SearchBarFrame.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
             SearchBarFrame.BorderSizePixel = 0
             SearchBarFrame.LayoutOrder = layoutOrder
-            SearchBarFrame.Parent = ContentFrame
+            SearchBarFrame.Parent = Page
 
             local SearchCorner = Instance.new("UICorner")
             SearchCorner.CornerRadius = UDim.new(0, 10)
@@ -1452,6 +1561,737 @@ function Library:CreateWindow(config)
                 Clear = function() SearchInput.Text = "" end,
                 Frame = SearchBarFrame,
                 Box = SearchInput
+            }
+        end
+
+        -- ==========================================
+        -- Tab Component: AddMultiDropdown
+        -- Multi-selection dropdown with toggle items & count label
+        -- ==========================================
+        function Tab:AddMultiDropdown(multiConfig)
+            local title = multiConfig.Title or "Multi Dropdown"
+            local desc = multiConfig.Desc
+            local options = multiConfig.Options or {}
+            local defaultSelected = multiConfig.Default or {}
+            local callback = multiConfig.Callback or function() end
+
+            Tab.ZCounter = Tab.ZCounter - 1
+            local zIndex = Tab.ZCounter
+
+            local row = CreateBaseRow(title, desc, zIndex)
+
+            local selectedMap = {}
+            for _, item in ipairs(defaultSelected) do
+                selectedMap[item] = true
+            end
+
+            local ComboContainer = Instance.new("Frame")
+            ComboContainer.Name = "MultiComboContainer"
+            ComboContainer.Size = UDim2.new(0, 150, 0, 30)
+            ComboContainer.AnchorPoint = Vector2.new(1, 0.5)
+            ComboContainer.Position = UDim2.new(1, -16, 0.5, 0)
+            ComboContainer.BackgroundTransparency = 1
+            ComboContainer.ClipsDescendants = false
+            ComboContainer.ZIndex = zIndex + 2
+            ComboContainer.Parent = row
+
+            local ComboMain = Instance.new("TextButton")
+            ComboMain.Name = "ComboMain"
+            ComboMain.Size = UDim2.new(1, 0, 1, 0)
+            ComboMain.BackgroundColor3 = Color3.fromRGB(36, 36, 44)
+            ComboMain.AutoButtonColor = false
+            ComboMain.Text = ""
+            ComboMain.ZIndex = zIndex + 3
+            ComboMain.Parent = ComboContainer
+
+            local ComboCorner = Instance.new("UICorner")
+            ComboCorner.CornerRadius = UDim.new(0, 8)
+            ComboCorner.Parent = ComboMain
+
+            local ComboStroke = Instance.new("UIStroke")
+            ComboStroke.Color = Library.Theme.CardBorder
+            ComboStroke.Thickness = 1
+            ComboStroke.Transparency = 0.4
+            ComboStroke.Parent = ComboMain
+
+            local CurrentLabel = Instance.new("TextLabel")
+            CurrentLabel.Name = "CurrentLabel"
+            CurrentLabel.Font = Enum.Font.GothamMedium
+            CurrentLabel.TextSize = 11.5
+            CurrentLabel.TextColor3 = Library.Theme.TextPrimary
+            CurrentLabel.TextXAlignment = Enum.TextXAlignment.Left
+            CurrentLabel.BackgroundTransparency = 1
+            CurrentLabel.Position = UDim2.new(0, 10, 0, 0)
+            CurrentLabel.Size = UDim2.new(1, -34, 1, 0)
+            CurrentLabel.ZIndex = zIndex + 4
+            CurrentLabel.Parent = ComboMain
+
+            local Chevron = Instance.new("ImageLabel")
+            Chevron.Name = "Chevron"
+            Chevron.Image = "rbxassetid://7733717447"
+            Chevron.ImageColor3 = Library.Theme.TextSecondary
+            Chevron.BackgroundTransparency = 1
+            Chevron.AnchorPoint = Vector2.new(0.5, 0.5)
+            Chevron.Position = UDim2.new(1, -12, 0.5, 0)
+            Chevron.Size = UDim2.new(0, 14, 0, 14)
+            Chevron.ZIndex = zIndex + 4
+            Chevron.Parent = ComboMain
+
+            local DropdownList = Instance.new("CanvasGroup")
+            DropdownList.Name = "DropdownList"
+            DropdownList.Size = UDim2.new(1, 0, 0, 0)
+            DropdownList.Position = UDim2.new(0, 0, 1, 6)
+            DropdownList.BackgroundColor3 = Library.Theme.DropdownBg
+            DropdownList.BorderSizePixel = 0
+            DropdownList.GroupTransparency = 1
+            DropdownList.Visible = false
+            DropdownList.ZIndex = zIndex + 15
+            DropdownList.Parent = ComboContainer
+
+            local DropCorner = Instance.new("UICorner")
+            DropCorner.CornerRadius = UDim.new(0, 10)
+            DropCorner.Parent = DropdownList
+
+            local DropStroke = Instance.new("UIStroke")
+            DropStroke.Color = Library.Theme.CardBorder
+            DropStroke.Thickness = 1
+            DropStroke.Transparency = 0.25
+            DropStroke.Parent = DropdownList
+
+            local Scroll = Instance.new("ScrollingFrame")
+            Scroll.Name = "Scroll"
+            Scroll.Size = UDim2.new(1, 0, 1, 0)
+            Scroll.BackgroundTransparency = 1
+            Scroll.BorderSizePixel = 0
+            Scroll.ScrollBarThickness = 3
+            Scroll.ScrollBarImageColor3 = Library.Theme.CardBorder
+            Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+            Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+            Scroll.ZIndex = zIndex + 16
+            Scroll.Parent = DropdownList
+
+            local DropLayout = Instance.new("UIListLayout")
+            DropLayout.SortOrder = Enum.SortOrder.LayoutOrder
+            DropLayout.Padding = UDim.new(0, 2)
+            DropLayout.Parent = Scroll
+
+            local DropPadding = Instance.new("UIPadding")
+            DropPadding.PaddingTop = UDim.new(0, 4)
+            DropPadding.PaddingBottom = UDim.new(0, 4)
+            DropPadding.PaddingLeft = UDim.new(0, 4)
+            DropPadding.PaddingRight = UDim.new(0, 4)
+            DropPadding.Parent = Scroll
+
+            local isOpen = false
+            local itemWidgets = {}
+
+            local function UpdateCountLabel()
+                local count = 0
+                for _, sel in pairs(selectedMap) do
+                    if sel then count = count + 1 end
+                end
+                if count == 0 then
+                    CurrentLabel.Text = "0 Selected"
+                    CurrentLabel.TextColor3 = Library.Theme.TextSecondary
+                else
+                    CurrentLabel.Text = count .. " Selected"
+                    CurrentLabel.TextColor3 = currentAccent
+                end
+            end
+
+            local function CloseDrop()
+                if not isOpen then return end
+                isOpen = false
+                TweenService:Create(Chevron, TweenFast, {Rotation = 0}):Play()
+                TweenService:Create(ComboMain, TweenFast, {BackgroundColor3 = Color3.fromRGB(36, 36, 44)}):Play()
+                local t = TweenService:Create(DropdownList, TweenFast, {
+                    Size = UDim2.new(1, 0, 0, 0),
+                    GroupTransparency = 1
+                })
+                t:Play()
+                t.Completed:Connect(function()
+                    if not isOpen then DropdownList.Visible = false end
+                end)
+            end
+
+            local function OpenDrop()
+                if isOpen then return end
+                isOpen = true
+                DropdownList.Visible = true
+                TweenService:Create(Chevron, TweenFast, {Rotation = 180}):Play()
+                TweenService:Create(ComboMain, TweenFast, {BackgroundColor3 = Color3.fromRGB(44, 44, 52)}):Play()
+                local visibleCount = math.min(#options, 6)
+                local targetH = (visibleCount * 30) + 8
+                TweenService:Create(DropdownList, TweenFast, {
+                    Size = UDim2.new(1, 0, 0, targetH),
+                    GroupTransparency = 0
+                }):Play()
+            end
+
+            local function RefreshOptions(newOptions)
+                options = newOptions
+                for _, child in ipairs(Scroll:GetChildren()) do
+                    if child:IsA("TextButton") then child:Destroy() end
+                end
+                table.clear(itemWidgets)
+
+                for idx, optName in ipairs(options) do
+                    local OptBtn = Instance.new("TextButton")
+                    OptBtn.Name = "Opt_" .. tostring(optName)
+                    OptBtn.Size = UDim2.new(1, 0, 0, 26)
+                    OptBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+                    OptBtn.BackgroundTransparency = 1
+                    OptBtn.AutoButtonColor = false
+                    OptBtn.Text = ""
+                    OptBtn.LayoutOrder = idx
+                    OptBtn.ZIndex = zIndex + 17
+                    OptBtn.Parent = Scroll
+
+                    local OptCorner = Instance.new("UICorner")
+                    OptCorner.CornerRadius = UDim.new(0, 6)
+                    OptCorner.Parent = OptBtn
+
+                    local OptLabel = Instance.new("TextLabel")
+                    OptLabel.Text = tostring(optName)
+                    OptLabel.Font = Enum.Font.GothamMedium
+                    OptLabel.TextSize = 12
+                    OptLabel.TextColor3 = (selectedMap[optName] == true) and currentAccent or Library.Theme.TextPrimary
+                    OptLabel.TextXAlignment = Enum.TextXAlignment.Left
+                    OptLabel.BackgroundTransparency = 1
+                    OptLabel.Position = UDim2.new(0, 10, 0, 0)
+                    OptLabel.Size = UDim2.new(1, -20, 1, 0)
+                    OptLabel.ZIndex = zIndex + 18
+                    OptLabel.Parent = OptBtn
+
+                    itemWidgets[optName] = {Btn = OptBtn, Label = OptLabel}
+
+                    OptBtn.MouseEnter:Connect(function()
+                        TweenService:Create(OptBtn, TweenFast, {BackgroundTransparency = 0, BackgroundColor3 = Library.Theme.HoverLight}):Play()
+                    end)
+                    OptBtn.MouseLeave:Connect(function()
+                        TweenService:Create(OptBtn, TweenFast, {BackgroundTransparency = 1}):Play()
+                    end)
+
+                    OptBtn.MouseButton1Click:Connect(function()
+                        selectedMap[optName] = not selectedMap[optName]
+                        local isSel = selectedMap[optName] == true
+                        TweenService:Create(OptLabel, TweenFast, {
+                            TextColor3 = isSel and currentAccent or Library.Theme.TextPrimary
+                        }):Play()
+                        UpdateCountLabel()
+                        local selectedList = {}
+                        for k, v in pairs(selectedMap) do
+                            if v then table.insert(selectedList, k) end
+                        end
+                        pcall(callback, selectedList, optName, isSel)
+                    end)
+                end
+                UpdateCountLabel()
+            end
+
+            RefreshOptions(options)
+
+            RegisterAccentListener(function(newColor)
+                UpdateCountLabel()
+                for optName, data in pairs(itemWidgets) do
+                    if selectedMap[optName] == true then
+                        TweenService:Create(data.Label, TweenFast, {TextColor3 = newColor}):Play()
+                    end
+                end
+            end)
+
+            ComboMain.MouseButton1Click:Connect(function()
+                if isOpen then CloseDrop() else OpenDrop() end
+            end)
+
+            table.insert(Connections, UserInputService.InputBegan:Connect(function(input)
+                if isOpen and input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    local mousePos = UserInputService:GetMouseLocation()
+                    local pos = ComboContainer.AbsolutePosition
+                    local size = ComboContainer.AbsoluteSize
+                    local dropH = DropdownList.AbsoluteSize.Y
+                    if mousePos.X < pos.X or mousePos.X > pos.X + size.X or mousePos.Y < pos.Y or mousePos.Y > pos.Y + dropH + 10 then
+                        CloseDrop()
+                    end
+                end
+            end))
+
+            return {
+                Get = function()
+                    local list = {}
+                    for k, v in pairs(selectedMap) do
+                        if v then table.insert(list, k) end
+                    end
+                    return list
+                end,
+                Set = function(newSelectedList)
+                    table.clear(selectedMap)
+                    for _, k in ipairs(newSelectedList or {}) do
+                        selectedMap[k] = true
+                    end
+                    for optName, data in pairs(itemWidgets) do
+                        local isSel = (selectedMap[optName] == true)
+                        data.Label.TextColor3 = isSel and currentAccent or Library.Theme.TextPrimary
+                    end
+                    UpdateCountLabel()
+                end,
+                Refresh = RefreshOptions,
+                Row = row
+            }
+        end
+
+        -- ==========================================
+        -- Tab Component: AddAccentPicker
+        -- iOS 18 Color Palette picker with live preview dot and dynamic retinting
+        -- ==========================================
+        function Tab:AddAccentPicker(pickerConfig)
+            pickerConfig = pickerConfig or {}
+            local title = pickerConfig.Title or "Accent Color"
+            local desc = pickerConfig.Desc or "Change menu theme highlight color"
+            local defaultColorName = pickerConfig.Default or "Blue"
+            local callback = pickerConfig.Callback or function() end
+
+            Tab.ZCounter = Tab.ZCounter - 1
+            local zIndex = Tab.ZCounter
+
+            local row = CreateBaseRow(title, desc, zIndex)
+
+            local ComboContainer = Instance.new("Frame")
+            ComboContainer.Name = "AccentComboContainer"
+            ComboContainer.Size = UDim2.new(0, 130, 0, 30)
+            ComboContainer.AnchorPoint = Vector2.new(1, 0.5)
+            ComboContainer.Position = UDim2.new(1, -16, 0.5, 0)
+            ComboContainer.BackgroundTransparency = 1
+            ComboContainer.ClipsDescendants = false
+            ComboContainer.ZIndex = zIndex + 2
+            ComboContainer.Parent = row
+
+            local ComboMain = Instance.new("TextButton")
+            ComboMain.Name = "ComboMain"
+            ComboMain.Size = UDim2.new(1, 0, 1, 0)
+            ComboMain.BackgroundColor3 = Color3.fromRGB(36, 36, 44)
+            ComboMain.AutoButtonColor = false
+            ComboMain.Text = ""
+            ComboMain.ZIndex = zIndex + 3
+            ComboMain.Parent = ComboContainer
+
+            local ComboCorner = Instance.new("UICorner")
+            ComboCorner.CornerRadius = UDim.new(0, 8)
+            ComboCorner.Parent = ComboMain
+
+            local ComboStroke = Instance.new("UIStroke")
+            ComboStroke.Color = Library.Theme.CardBorder
+            ComboStroke.Thickness = 1
+            ComboStroke.Transparency = 0.4
+            ComboStroke.Parent = ComboMain
+
+            local ColorDotPreview = Instance.new("Frame")
+            ColorDotPreview.Name = "ColorDotPreview"
+            ColorDotPreview.Size = UDim2.new(0, 10, 0, 10)
+            ColorDotPreview.AnchorPoint = Vector2.new(0, 0.5)
+            ColorDotPreview.Position = UDim2.new(0, 10, 0.5, 0)
+            ColorDotPreview.BackgroundColor3 = currentAccent
+            ColorDotPreview.BorderSizePixel = 0
+            ColorDotPreview.ZIndex = zIndex + 4
+            ColorDotPreview.Parent = ComboMain
+
+            local DotCorner = Instance.new("UICorner")
+            DotCorner.CornerRadius = UDim.new(1, 0)
+            DotCorner.Parent = ColorDotPreview
+
+            local CurrentLabel = Instance.new("TextLabel")
+            CurrentLabel.Name = "CurrentLabel"
+            CurrentLabel.Text = defaultColorName
+            CurrentLabel.Font = Enum.Font.GothamMedium
+            CurrentLabel.TextSize = 12
+            CurrentLabel.TextColor3 = Library.Theme.TextPrimary
+            CurrentLabel.TextXAlignment = Enum.TextXAlignment.Left
+            CurrentLabel.BackgroundTransparency = 1
+            CurrentLabel.Position = UDim2.new(0, 26, 0, 0)
+            CurrentLabel.Size = UDim2.new(1, -52, 1, 0)
+            CurrentLabel.ZIndex = zIndex + 4
+            CurrentLabel.Parent = ComboMain
+
+            local Chevron = Instance.new("ImageLabel")
+            Chevron.Name = "Chevron"
+            Chevron.Image = "rbxassetid://7733717447"
+            Chevron.ImageColor3 = Library.Theme.TextSecondary
+            Chevron.BackgroundTransparency = 1
+            Chevron.AnchorPoint = Vector2.new(0.5, 0.5)
+            Chevron.Position = UDim2.new(1, -14, 0.5, 0)
+            Chevron.Size = UDim2.new(0, 16, 0, 16)
+            Chevron.ZIndex = zIndex + 4
+            Chevron.Parent = ComboMain
+
+            local DropdownList = Instance.new("CanvasGroup")
+            DropdownList.Name = "DropdownList"
+            DropdownList.Size = UDim2.new(1, 0, 0, 0)
+            DropdownList.Position = UDim2.new(0, 0, 1, 6)
+            DropdownList.BackgroundColor3 = Library.Theme.DropdownBg
+            DropdownList.BorderSizePixel = 0
+            DropdownList.GroupTransparency = 1
+            DropdownList.Visible = false
+            DropdownList.ZIndex = zIndex + 15
+            DropdownList.Parent = ComboContainer
+
+            local DropCorner = Instance.new("UICorner")
+            DropCorner.CornerRadius = UDim.new(0, 10)
+            DropCorner.Parent = DropdownList
+
+            local DropStroke = Instance.new("UIStroke")
+            DropStroke.Color = Library.Theme.CardBorder
+            DropStroke.Thickness = 1
+            DropStroke.Transparency = 0.25
+            DropStroke.Parent = DropdownList
+
+            local DropLayout = Instance.new("UIListLayout")
+            DropLayout.SortOrder = Enum.SortOrder.LayoutOrder
+            DropLayout.Padding = UDim.new(0, 2)
+            DropLayout.Parent = DropdownList
+
+            local DropPadding = Instance.new("UIPadding")
+            DropPadding.PaddingTop = UDim.new(0, 4)
+            DropPadding.PaddingBottom = UDim.new(0, 4)
+            DropPadding.PaddingLeft = UDim.new(0, 4)
+            DropPadding.PaddingRight = UDim.new(0, 4)
+            DropPadding.Parent = DropdownList
+
+            local isOpen = false
+            local selectedColorName = defaultColorName
+            local optionLabels = {}
+
+            local function CloseDrop()
+                if not isOpen then return end
+                isOpen = false
+                TweenService:Create(Chevron, TweenFast, {Rotation = 0}):Play()
+                TweenService:Create(ComboMain, TweenFast, {BackgroundColor3 = Color3.fromRGB(36, 36, 44)}):Play()
+                local t = TweenService:Create(DropdownList, TweenFast, {
+                    Size = UDim2.new(1, 0, 0, 0),
+                    GroupTransparency = 1
+                })
+                t:Play()
+                t.Completed:Connect(function()
+                    if not isOpen then DropdownList.Visible = false end
+                end)
+            end
+
+            local function OpenDrop()
+                if isOpen then return end
+                isOpen = true
+                DropdownList.Visible = true
+                TweenService:Create(Chevron, TweenFast, {Rotation = 180}):Play()
+                TweenService:Create(ComboMain, TweenFast, {BackgroundColor3 = Color3.fromRGB(46, 46, 56)}):Play()
+                local totalHeight = (#Library.AccentColors * 28) + 8
+                TweenService:Create(DropdownList, TweenSpring, {
+                    Size = UDim2.new(1, 0, 0, totalHeight),
+                    GroupTransparency = 0
+                }):Play()
+            end
+
+            local function SelectColor(colorItem)
+                selectedColorName = colorItem.Name
+                CurrentLabel.Text = colorItem.Name
+                TweenService:Create(ColorDotPreview, TweenFast, {BackgroundColor3 = colorItem.Color}):Play()
+                for _, opt in ipairs(optionLabels) do
+                    local isSel = (opt.Item.Name == selectedColorName)
+                    TweenService:Create(opt.Label, TweenFast, {
+                        TextColor3 = isSel and colorItem.Color or Library.Theme.TextPrimary
+                    }):Play()
+                end
+                CloseDrop()
+                SetAccent(colorItem.Color)
+                pcall(callback, colorItem.Color, colorItem.Name)
+            end
+
+            for idx, colorItem in ipairs(Library.AccentColors) do
+                local OptionBtn = Instance.new("TextButton")
+                OptionBtn.Name = colorItem.Name .. "Option"
+                OptionBtn.Size = UDim2.new(1, 0, 0, 26)
+                OptionBtn.BackgroundColor3 = Library.Theme.HoverLight
+                OptionBtn.BackgroundTransparency = 1
+                OptionBtn.AutoButtonColor = false
+                OptionBtn.Text = ""
+                OptionBtn.LayoutOrder = idx
+                OptionBtn.ZIndex = zIndex + 16
+                OptionBtn.Parent = DropdownList
+
+                local OptCorner = Instance.new("UICorner")
+                OptCorner.CornerRadius = UDim.new(0, 6)
+                OptCorner.Parent = OptionBtn
+
+                local OptDot = Instance.new("Frame")
+                OptDot.Size = UDim2.new(0, 8, 0, 8)
+                OptDot.AnchorPoint = Vector2.new(0, 0.5)
+                OptDot.Position = UDim2.new(0, 8, 0.5, 0)
+                OptDot.BackgroundColor3 = colorItem.Color
+                OptDot.BorderSizePixel = 0
+                OptDot.ZIndex = zIndex + 17
+                OptDot.Parent = OptionBtn
+
+                local DotC = Instance.new("UICorner")
+                DotC.CornerRadius = UDim.new(1, 0)
+                DotC.Parent = OptDot
+
+                local OptLabel = Instance.new("TextLabel")
+                OptLabel.Text = colorItem.Name
+                OptLabel.Font = Enum.Font.GothamMedium
+                OptLabel.TextSize = 12
+                OptLabel.TextColor3 = (colorItem.Name == selectedColorName) and currentAccent or Library.Theme.TextPrimary
+                OptLabel.TextXAlignment = Enum.TextXAlignment.Left
+                OptLabel.BackgroundTransparency = 1
+                OptLabel.Position = UDim2.new(0, 24, 0, 0)
+                OptLabel.Size = UDim2.new(1, -32, 1, 0)
+                OptLabel.ZIndex = zIndex + 17
+                OptLabel.Parent = OptionBtn
+
+                table.insert(optionLabels, {Label = OptLabel, Item = colorItem})
+
+                OptionBtn.MouseEnter:Connect(function()
+                    TweenService:Create(OptionBtn, TweenFast, {BackgroundTransparency = 0}):Play()
+                end)
+                OptionBtn.MouseLeave:Connect(function()
+                    TweenService:Create(OptionBtn, TweenFast, {BackgroundTransparency = 1}):Play()
+                end)
+                OptionBtn.MouseButton1Click:Connect(function()
+                    SelectColor(colorItem)
+                end)
+            end
+
+            RegisterAccentListener(function(newColor)
+                TweenService:Create(ColorDotPreview, TweenFast, {BackgroundColor3 = newColor}):Play()
+            end)
+
+            ComboMain.MouseButton1Click:Connect(function()
+                if isOpen then CloseDrop() else OpenDrop() end
+            end)
+
+            table.insert(Connections, UserInputService.InputBegan:Connect(function(input)
+                if isOpen and input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    local mousePos = UserInputService:GetMouseLocation()
+                    local pos = ComboContainer.AbsolutePosition
+                    local size = ComboContainer.AbsoluteSize
+                    local dropH = DropdownList.AbsoluteSize.Y
+                    if mousePos.X < pos.X or mousePos.X > pos.X + size.X or mousePos.Y < pos.Y or mousePos.Y > pos.Y + dropH + 10 then
+                        CloseDrop()
+                    end
+                end
+            end))
+
+            return {
+                Select = function(colorNameOrColor)
+                    for _, cItem in ipairs(Library.AccentColors) do
+                        if cItem.Name == colorNameOrColor or cItem.Color == colorNameOrColor then
+                            SelectColor(cItem)
+                            break
+                        end
+                    end
+                end,
+                Get = function() return currentAccent, selectedColorName end,
+                Row = row
+            }
+        end
+
+        -- ==========================================
+        -- Tab Component: AddWarningBanner
+        -- Attention banner / callout card (Red/Yellow/Orange)
+        -- ==========================================
+        function Tab:AddWarningBanner(bannerConfig)
+            bannerConfig = bannerConfig or {}
+            local title = bannerConfig.Title or "WARNING"
+            local desc = bannerConfig.Desc or ""
+            local bannerColor = bannerConfig.Color or Library.Theme.AccentRed
+            local icon = bannerConfig.Icon or "rbxassetid://10709751939"
+            local layoutOrder = bannerConfig.LayoutOrder or 0
+
+            local Card = Instance.new("Frame")
+            Card.Name = "WarningBanner"
+            Card.Size = UDim2.new(1, 0, 0, 64)
+            Card.BackgroundColor3 = Color3.fromRGB(38, 22, 24)
+            Card.BorderSizePixel = 0
+            Card.LayoutOrder = layoutOrder
+            Card.Parent = Page
+
+            local Corner = Instance.new("UICorner")
+            Corner.CornerRadius = UDim.new(0, 12)
+            Corner.Parent = Card
+
+            local Stroke = Instance.new("UIStroke")
+            Stroke.Color = bannerColor
+            Stroke.Thickness = 1
+            Stroke.Transparency = 0.5
+            Stroke.Parent = Card
+
+            local IconImg = Instance.new("ImageLabel")
+            IconImg.Name = "BannerIcon"
+            IconImg.Image = icon
+            IconImg.ImageColor3 = bannerColor
+            IconImg.BackgroundTransparency = 1
+            IconImg.Position = UDim2.new(0, 14, 0.5, 0)
+            IconImg.AnchorPoint = Vector2.new(0, 0.5)
+            IconImg.Size = UDim2.new(0, 22, 0, 22)
+            IconImg.Parent = Card
+
+            local TitleLabel = Instance.new("TextLabel")
+            TitleLabel.Name = "BannerTitle"
+            TitleLabel.Text = title
+            TitleLabel.Font = Enum.Font.GothamBold
+            TitleLabel.TextSize = 12.5
+            TitleLabel.TextColor3 = bannerColor
+            TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+            TitleLabel.BackgroundTransparency = 1
+            TitleLabel.Position = UDim2.new(0, 44, 0, 9)
+            TitleLabel.Size = UDim2.new(1, -54, 0, 16)
+            TitleLabel.Parent = Card
+
+            local DescLabel = Instance.new("TextLabel")
+            DescLabel.Name = "BannerDesc"
+            DescLabel.Text = desc
+            DescLabel.Font = Enum.Font.Gotham
+            DescLabel.TextSize = 11
+            DescLabel.TextColor3 = Library.Theme.TextSecondary
+            DescLabel.TextXAlignment = Enum.TextXAlignment.Left
+            DescLabel.TextWrapped = true
+            DescLabel.BackgroundTransparency = 1
+            DescLabel.Position = UDim2.new(0, 44, 0, 27)
+            DescLabel.Size = UDim2.new(1, -54, 0, 30)
+            DescLabel.Parent = Card
+
+            return {
+                SetTitle = function(t) TitleLabel.Text = t end,
+                SetDesc = function(d) DescLabel.Text = d end,
+                Card = Card
+            }
+        end
+
+        -- ==========================================
+        -- Tab Component: AddGrid
+        -- Grid layout container for slots / item cards
+        -- ==========================================
+        function Tab:AddGrid(gridConfig)
+            gridConfig = gridConfig or {}
+            local cellSize = gridConfig.CellSize or UDim2.new(0, 64, 0, 64)
+            local cellPadding = gridConfig.CellPadding or UDim2.new(0, 9, 0, 9)
+            local layoutOrder = gridConfig.LayoutOrder or 2
+
+            local Container = Instance.new("Frame")
+            Container.Name = "GridContainer"
+            Container.Size = UDim2.new(1, 0, 0, 0)
+            Container.AutomaticSize = Enum.AutomaticSize.Y
+            Container.BackgroundTransparency = 1
+            Container.BorderSizePixel = 0
+            Container.LayoutOrder = layoutOrder
+            Container.Parent = Page
+
+            local Layout = Instance.new("UIGridLayout")
+            Layout.CellSize = cellSize
+            Layout.CellPadding = cellPadding
+            Layout.SortOrder = Enum.SortOrder.LayoutOrder
+            Layout.Parent = Container
+
+            local slots = {}
+
+            local function AddSlot(slotConfig)
+                local name = slotConfig.Name or "Item"
+                local image = slotConfig.Image or ""
+                local color = slotConfig.Color or Color3.fromRGB(255, 255, 255)
+                local order = slotConfig.Order or (#slots + 1)
+                local onHover = slotConfig.OnHover
+                local onClick = slotConfig.OnClick
+
+                local SlotBtn = Instance.new("TextButton")
+                SlotBtn.Name = "Slot_" .. tostring(name)
+                SlotBtn.Size = cellSize
+                SlotBtn.BackgroundColor3 = Color3.fromRGB(24, 24, 28)
+                SlotBtn.AutoButtonColor = false
+                SlotBtn.Text = ""
+                SlotBtn.LayoutOrder = order
+                SlotBtn.Parent = Container
+
+                local SlotCorner = Instance.new("UICorner")
+                SlotCorner.CornerRadius = UDim.new(0, 10)
+                SlotCorner.Parent = SlotBtn
+
+                local SlotStroke = Instance.new("UIStroke")
+                SlotStroke.Color = Library.Theme.CardBorder
+                SlotStroke.Thickness = 1
+                SlotStroke.Transparency = 0.4
+                SlotStroke.Parent = SlotBtn
+
+                local IconImg = Instance.new("ImageLabel")
+                IconImg.Name = "SlotIcon"
+                IconImg.Image = image
+                IconImg.ImageColor3 = color
+                IconImg.BackgroundTransparency = 1
+                IconImg.AnchorPoint = Vector2.new(0.5, 0.5)
+                IconImg.Position = UDim2.new(0.5, 0, 0.5, 0)
+                IconImg.Size = UDim2.new(0.85, 0, 0.85, 0)
+                IconImg.Parent = SlotBtn
+
+                local Badge = Instance.new("ImageLabel")
+                Badge.Name = "SlotBadge"
+                Badge.Image = "rbxassetid://10747384394"
+                Badge.ImageColor3 = Library.Theme.AccentRed
+                Badge.BackgroundTransparency = 1
+                Badge.AnchorPoint = Vector2.new(0.5, 0.5)
+                Badge.Position = UDim2.new(0.5, 0, 0.5, 0)
+                Badge.Size = UDim2.new(0.9, 0, 0.9, 0)
+                Badge.Visible = false
+                Badge.Parent = SlotBtn
+
+                SlotBtn.MouseEnter:Connect(function()
+                    TweenService:Create(SlotBtn, TweenFast, {BackgroundColor3 = Library.Theme.HoverLight}):Play()
+                    if onHover then pcall(onHover, true, SlotBtn) end
+                end)
+                SlotBtn.MouseLeave:Connect(function()
+                    TweenService:Create(SlotBtn, TweenFast, {BackgroundColor3 = Color3.fromRGB(24, 24, 28)}):Play()
+                    if onHover then pcall(onHover, false, SlotBtn) end
+                end)
+                SlotBtn.MouseButton1Click:Connect(function()
+                    TweenService:Create(SlotBtn, TweenFast, {Size = UDim2.new(0, cellSize.X.Offset - 6, 0, cellSize.Y.Offset - 6)}):Play()
+                    task.delay(0.08, function()
+                        TweenService:Create(SlotBtn, TweenSpring, {Size = cellSize}):Play()
+                    end)
+                    if onClick then pcall(onClick, SlotBtn) end
+                end)
+
+                local slotObj = {
+                    Button = SlotBtn,
+                    Icon = IconImg,
+                    Badge = Badge,
+                    Stroke = SlotStroke,
+                    Name = name,
+                    SetBadge = function(visible, badgeColor)
+                        Badge.Visible = visible
+                        if badgeColor then Badge.ImageColor3 = badgeColor end
+                        TweenService:Create(SlotStroke, TweenFast, {
+                            Color = visible and (badgeColor or Library.Theme.AccentRed) or Library.Theme.CardBorder,
+                            Transparency = visible and 0.2 or 0.4
+                        }):Play()
+                    end
+                }
+                table.insert(slots, slotObj)
+                return slotObj
+            end
+
+            return {
+                Container = Container,
+                AddSlot = AddSlot,
+                Filter = function(searchText)
+                    local query = string.lower(searchText or "")
+                    for _, s in ipairs(slots) do
+                        if query == "" or string.find(string.lower(s.Name), query, 1, true) then
+                            s.Button.Visible = true
+                        else
+                            s.Button.Visible = false
+                        end
+                    end
+                end,
+                Clear = function()
+                    for _, s in ipairs(slots) do
+                        s.Button:Destroy()
+                    end
+                    table.clear(slots)
+                end
             }
         end
 
