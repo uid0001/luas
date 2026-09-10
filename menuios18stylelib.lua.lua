@@ -1303,14 +1303,18 @@ function Library:CreateWindow(config)
             Chevron.ZIndex = zIndex + 4
             Chevron.Parent = ComboMain
 
-            local DropdownList = Instance.new("CanvasGroup")
+            local DropdownList = Instance.new("ScrollingFrame")
             DropdownList.Name = "DropdownList"
             DropdownList.Size = UDim2.new(1, 0, 0, 0)
             DropdownList.Position = UDim2.new(0, 0, 1, 6)
             DropdownList.BackgroundColor3 = Library.Theme.DropdownBg
             DropdownList.BorderSizePixel = 0
-            DropdownList.GroupTransparency = 1
+            DropdownList.ScrollBarThickness = 3
+            DropdownList.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 120)
+            DropdownList.CanvasSize = UDim2.new(0, 0, 0, 0)
+            DropdownList.AutomaticCanvasSize = Enum.AutomaticSize.Y
             DropdownList.Visible = false
+            DropdownList.ClipsDescendants = true
             DropdownList.ZIndex = zIndex + 15
             DropdownList.Parent = ComboContainer
 
@@ -1346,8 +1350,7 @@ function Library:CreateWindow(config)
                 TweenService:Create(Chevron, TweenFast, {Rotation = 0}):Play()
                 TweenService:Create(ComboMain, TweenFast, {BackgroundColor3 = Color3.fromRGB(36, 36, 44)}):Play()
                 local t = TweenService:Create(DropdownList, TweenFast, {
-                    Size = UDim2.new(1, 0, 0, 0),
-                    GroupTransparency = 1
+                    Size = UDim2.new(1, 0, 0, 0)
                 })
                 t:Play()
                 t.Completed:Connect(function()
@@ -1361,10 +1364,9 @@ function Library:CreateWindow(config)
                 DropdownList.Visible = true
                 TweenService:Create(Chevron, TweenFast, {Rotation = 180}):Play()
                 TweenService:Create(ComboMain, TweenFast, {BackgroundColor3 = Color3.fromRGB(44, 44, 52)}):Play()
-                local targetH = math.min(#options * 32 + 8, 180)
+                local targetH = math.min(#options * 30 + 8, 160)
                 TweenService:Create(DropdownList, TweenFast, {
-                    Size = UDim2.new(1, 0, 0, targetH),
-                    GroupTransparency = 0
+                    Size = UDim2.new(1, 0, 0, targetH)
                 }):Play()
             end
 
@@ -1425,6 +1427,16 @@ function Library:CreateWindow(config)
                     OptBtn.MouseButton1Click:Connect(function()
                         SelectOption(optName)
                     end)
+                    OptBtn.InputBegan:Connect(function(input)
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                            SelectOption(optName)
+                        end
+                    end)
+                end
+
+                if isOpen then
+                    local targetH = math.min(#options * 30 + 8, 160)
+                    TweenService:Create(DropdownList, TweenFast, {Size = UDim2.new(1, 0, 0, targetH)}):Play()
                 end
             end
 
@@ -1435,14 +1447,22 @@ function Library:CreateWindow(config)
             end)
 
             table.insert(Connections, UserInputService.InputBegan:Connect(function(input)
-                if isOpen and input.UserInputType == Enum.UserInputType.MouseButton1 then
-                    local mousePos = UserInputService:GetMouseLocation()
-                    local pos = ComboContainer.AbsolutePosition
-                    local size = ComboContainer.AbsoluteSize
-                    local dropH = DropdownList.AbsoluteSize.Y
-                    if mousePos.X < pos.X or mousePos.X > pos.X + size.X or mousePos.Y < pos.Y or mousePos.Y > pos.Y + size.Y + dropH + 10 then
-                        CloseDrop()
-                    end
+                if isOpen and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+                    task.defer(function()
+                        if not isOpen then return end
+                        local mousePos = UserInputService:GetMouseLocation()
+                        local cPos = ComboContainer.AbsolutePosition
+                        local cSize = ComboContainer.AbsoluteSize
+                        local dPos = DropdownList.AbsolutePosition
+                        local dSize = DropdownList.AbsoluteSize
+
+                        local inCombo = (mousePos.X >= cPos.X and mousePos.X <= cPos.X + cSize.X and mousePos.Y >= cPos.Y and mousePos.Y <= cPos.Y + cSize.Y)
+                        local inDrop = (mousePos.X >= dPos.X and mousePos.X <= dPos.X + dSize.X and mousePos.Y >= dPos.Y and mousePos.Y <= dPos.Y + dSize.Y)
+
+                        if not inCombo and not inDrop then
+                            CloseDrop()
+                        end
+                    end)
                 end
             end))
 
