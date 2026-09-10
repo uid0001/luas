@@ -259,12 +259,21 @@ function Library:CreateWindow(config)
 
     table.insert(Connections, MainFrame.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 and not isResizing then
+            -- Check if click is on bottom-right resize area or interactive element
+            local mousePos = input.Position
+            local framePos = MainFrame.AbsolutePosition
+            local frameSize = MainFrame.AbsoluteSize
+            -- Ignore drag if clicking near bottom right resize corner (30x30 region)
+            if mousePos.X >= (framePos.X + frameSize.X - 30) and mousePos.Y >= (framePos.Y + frameSize.Y - 30) then
+                return
+            end
+
             isDragging = true
             dragStart = input.Position
             startPos = MainFrame.Position
             local endedConn
-            endedConn = input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
+            endedConn = UserInputService.InputEnded:Connect(function(endInput)
+                if endInput.UserInputType == Enum.UserInputType.MouseButton1 then
                     isDragging = false
                     if endedConn then endedConn:Disconnect() end
                 end
@@ -274,16 +283,15 @@ function Library:CreateWindow(config)
     end))
 
     table.insert(Connections, UserInputService.InputChanged:Connect(function(input)
-        if isDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        if isDragging and not isResizing and input.UserInputType == Enum.UserInputType.MouseMovement then
             local delta = input.Position - dragStart
             MainFrame.Position = UDim2.new(
                 startPos.X.Scale,
-                startPos.X.Offset + delta.X,
+                math.round(startPos.X.Offset + delta.X),
                 startPos.Y.Scale,
-                startPos.Y.Offset + delta.Y
+                math.round(startPos.Y.Offset + delta.Y)
             )
         elseif isResizing and input.UserInputType == Enum.UserInputType.MouseMovement then
-            -- Instant 1:1 cursor tracking with AnchorPoint (0.5, 0.5)
             local delta = input.Position - resizeStartMouse
             local targetW = math.clamp(resizeStartSize.X + delta.X, MIN_WIDTH, MAX_WIDTH)
             local targetH = math.clamp(resizeStartSize.Y + delta.Y, MIN_HEIGHT, MAX_HEIGHT)
@@ -291,15 +299,15 @@ function Library:CreateWindow(config)
             local actualDeltaW = targetW - resizeStartSize.X
             local actualDeltaH = targetH - resizeStartSize.Y
 
-            currentWidth = math.floor(targetW)
-            currentHeight = math.floor(targetH)
+            currentWidth = math.round(targetW)
+            currentHeight = math.round(targetH)
 
             MainFrame.Size = UDim2.new(0, currentWidth, 0, currentHeight)
             MainFrame.Position = UDim2.new(
                 resizeStartPos.X.Scale,
-                math.floor(resizeStartPos.X.Offset + (actualDeltaW * 0.5)),
+                math.round(resizeStartPos.X.Offset + (actualDeltaW * 0.5)),
                 resizeStartPos.Y.Scale,
-                math.floor(resizeStartPos.Y.Offset + (actualDeltaH * 0.5))
+                math.round(resizeStartPos.Y.Offset + (actualDeltaH * 0.5))
             )
         end
     end))
@@ -598,12 +606,28 @@ function Library:CreateWindow(config)
         if cb then pcall(cb) end
     end)
 
-    local function OpenConfirmModal(title, prompt, onConfirm, cancelText, confirmText)
+    local function OpenConfirmModal(...)
+        local args = {...}
+        local title, prompt, onConfirm, cancelText, confirmText
+        if typeof(args[1]) == "table" and (args[1] == Window or args[1].ScreenGui ~= nil) then
+            title = args[2]
+            prompt = args[3]
+            onConfirm = args[4]
+            cancelText = args[5]
+            confirmText = args[6]
+        else
+            title = args[1]
+            prompt = args[2]
+            onConfirm = args[3]
+            cancelText = args[4]
+            confirmText = args[5]
+        end
+
         pendingModalCallback = onConfirm
-        DialogTitle.Text = title or "CONFIRMATION"
-        DialogPrompt.Text = prompt or "Are you sure you want to proceed?"
-        DialogNoBtn.Text = cancelText or "Cancel"
-        DialogYesBtn.Text = confirmText or "Confirm"
+        DialogTitle.Text = tostring(title or "CONFIRMATION")
+        DialogPrompt.Text = tostring(prompt or "Are you sure you want to proceed?")
+        DialogNoBtn.Text = tostring(cancelText or "Cancel")
+        DialogYesBtn.Text = tostring(confirmText or "Confirm")
         ModalOverlay.BackgroundTransparency = 1
         ModalOverlay.Visible = true
         DialogCard.Size = UDim2.new(0, 260, 0, 130)
@@ -627,7 +651,12 @@ function Library:CreateWindow(config)
     NotifLayout.Padding = UDim.new(0, 8)
     NotifLayout.Parent = NotificationContainer
 
-    local function Notify(notifConfig)
+    local function Notify(...)
+        local args = {...}
+        local notifConfig = args[1]
+        if typeof(notifConfig) == "table" and (notifConfig == Window or notifConfig.ScreenGui ~= nil) then
+            notifConfig = args[2]
+        end
         notifConfig = notifConfig or {}
         local title = notifConfig.Title or "Notification"
         local message = notifConfig.Message or notifConfig.Text or ""
@@ -844,6 +873,15 @@ function Library:CreateWindow(config)
         TabBtn.MouseLeave:Connect(function()
             if self.CurrentTab ~= tabName then
                 TweenService:Create(TabBtn, TweenFast, {BackgroundTransparency = 1}):Play()
+            end
+        end)
+
+        RegisterAccentListener(function(newColor)
+            if self.CurrentTab == tabName then
+                TweenService:Create(TabLabel, TweenFast, {TextColor3 = newColor}):Play()
+                if TabIcon then
+                    TweenService:Create(TabIcon, TweenFast, {ImageColor3 = newColor}):Play()
+                end
             end
         end)
 
@@ -1412,6 +1450,274 @@ function Library:CreateWindow(config)
                 Select = SelectOption,
                 Get = function() return selectedVal end,
                 Refresh = RefreshOptions,
+                Row = row
+            }
+        end
+
+        -- Component: Accent Color Picker (iOS 18 Palette)
+        function Tab:AddAccentPicker(accentConfig)
+            local title = accentConfig.Title or "Accent Color"
+            local desc = accentConfig.Desc
+            local defaultColorName = accentConfig.Default or "Blue"
+            local callback = accentConfig.Callback or function() end
+
+            Tab.ZCounter = Tab.ZCounter - 1
+            local zIndex = Tab.ZCounter
+
+            local row = CreateBaseRow(title, desc, zIndex)
+
+            local ComboContainer = Instance.new("Frame")
+            ComboContainer.Name = "AccentPickerContainer"
+            ComboContainer.Size = UDim2.new(0, 140, 0, 30)
+            ComboContainer.AnchorPoint = Vector2.new(1, 0.5)
+            ComboContainer.Position = UDim2.new(1, -16, 0.5, 0)
+            ComboContainer.BackgroundTransparency = 1
+            ComboContainer.ClipsDescendants = false
+            ComboContainer.ZIndex = zIndex + 2
+            ComboContainer.Parent = row
+
+            local ComboMain = Instance.new("TextButton")
+            ComboMain.Name = "ComboMain"
+            ComboMain.Size = UDim2.new(1, 0, 1, 0)
+            ComboMain.BackgroundColor3 = Color3.fromRGB(36, 36, 44)
+            ComboMain.AutoButtonColor = false
+            ComboMain.Text = ""
+            ComboMain.ZIndex = zIndex + 3
+            ComboMain.Parent = ComboContainer
+
+            local ComboCorner = Instance.new("UICorner")
+            ComboCorner.CornerRadius = UDim.new(0, 8)
+            ComboCorner.Parent = ComboMain
+
+            local ComboStroke = Instance.new("UIStroke")
+            ComboStroke.Color = Library.Theme.CardBorder
+            ComboStroke.Thickness = 1
+            ComboStroke.Transparency = 0.4
+            ComboStroke.Parent = ComboMain
+
+            -- Preview dot for currently selected color
+            local SelectedDot = Instance.new("Frame")
+            SelectedDot.Name = "SelectedDot"
+            SelectedDot.Size = UDim2.new(0, 10, 0, 10)
+            SelectedDot.AnchorPoint = Vector2.new(0, 0.5)
+            SelectedDot.Position = UDim2.new(0, 12, 0.5, 0)
+            SelectedDot.BackgroundColor3 = currentAccent
+            SelectedDot.BorderSizePixel = 0
+            SelectedDot.ZIndex = zIndex + 4
+            SelectedDot.Parent = ComboMain
+
+            local DotCorner = Instance.new("UICorner")
+            DotCorner.CornerRadius = UDim.new(1, 0)
+            DotCorner.Parent = SelectedDot
+
+            local CurrentLabel = Instance.new("TextLabel")
+            CurrentLabel.Name = "CurrentLabel"
+            CurrentLabel.Text = tostring(defaultColorName)
+            CurrentLabel.Font = Enum.Font.GothamMedium
+            CurrentLabel.TextSize = 12
+            CurrentLabel.TextColor3 = Library.Theme.TextPrimary
+            CurrentLabel.TextXAlignment = Enum.TextXAlignment.Left
+            CurrentLabel.BackgroundTransparency = 1
+            CurrentLabel.Position = UDim2.new(0, 30, 0, 0)
+            CurrentLabel.Size = UDim2.new(1, -56, 1, 0)
+            CurrentLabel.ZIndex = zIndex + 4
+            CurrentLabel.Parent = ComboMain
+
+            local Chevron = Instance.new("ImageLabel")
+            Chevron.Name = "Chevron"
+            local chevIcon = Library:GetIcon("chevron-down")
+            Chevron.Image = (chevIcon ~= "") and chevIcon or "rbxassetid://7733717447"
+            Chevron.ImageColor3 = Library.Theme.TextSecondary
+            Chevron.BackgroundTransparency = 1
+            Chevron.AnchorPoint = Vector2.new(0.5, 0.5)
+            Chevron.Position = UDim2.new(1, -14, 0.5, 0)
+            Chevron.Size = UDim2.new(0, 16, 0, 16)
+            Chevron.ZIndex = zIndex + 4
+            Chevron.Parent = ComboMain
+
+            local DropdownList = Instance.new("CanvasGroup")
+            DropdownList.Name = "DropdownList"
+            DropdownList.Size = UDim2.new(1, 0, 0, 0)
+            DropdownList.Position = UDim2.new(0, 0, 1, 6)
+            DropdownList.BackgroundColor3 = Library.Theme.DropdownBg
+            DropdownList.BorderSizePixel = 0
+            DropdownList.GroupTransparency = 1
+            DropdownList.Visible = false
+            DropdownList.ZIndex = zIndex + 15
+            DropdownList.Parent = ComboContainer
+
+            local DropCorner = Instance.new("UICorner")
+            DropCorner.CornerRadius = UDim.new(0, 10)
+            DropCorner.Parent = DropdownList
+
+            local DropStroke = Instance.new("UIStroke")
+            DropStroke.Color = Library.Theme.CardBorder
+            DropStroke.Thickness = 1
+            DropStroke.Transparency = 0.25
+            DropStroke.Parent = DropdownList
+
+            local DropLayout = Instance.new("UIListLayout")
+            DropLayout.SortOrder = Enum.SortOrder.LayoutOrder
+            DropLayout.Padding = UDim.new(0, 2)
+            DropLayout.Parent = DropdownList
+
+            local DropPadding = Instance.new("UIPadding")
+            DropPadding.PaddingTop = UDim.new(0, 4)
+            DropPadding.PaddingBottom = UDim.new(0, 4)
+            DropPadding.PaddingLeft = UDim.new(0, 4)
+            DropPadding.PaddingRight = UDim.new(0, 4)
+            DropPadding.Parent = DropdownList
+
+            local isOpen = false
+            local selectedColorName = defaultColorName
+            local selectedColorVal = currentAccent
+            local optionButtons = {}
+
+            local function CloseDrop()
+                if not isOpen then return end
+                isOpen = false
+                TweenService:Create(Chevron, TweenFast, {Rotation = 0}):Play()
+                TweenService:Create(ComboMain, TweenFast, {BackgroundColor3 = Color3.fromRGB(36, 36, 44)}):Play()
+                local t = TweenService:Create(DropdownList, TweenFast, {
+                    Size = UDim2.new(1, 0, 0, 0),
+                    GroupTransparency = 1
+                })
+                t:Play()
+                t.Completed:Connect(function()
+                    if not isOpen then DropdownList.Visible = false end
+                end)
+            end
+
+            local function OpenDrop()
+                if isOpen then return end
+                isOpen = true
+                DropdownList.Visible = true
+                TweenService:Create(Chevron, TweenFast, {Rotation = 180}):Play()
+                TweenService:Create(ComboMain, TweenFast, {BackgroundColor3 = Color3.fromRGB(44, 44, 52)}):Play()
+                local targetH = math.min(#Library.AccentColors * 30 + 8, 220)
+                TweenService:Create(DropdownList, TweenFast, {
+                    Size = UDim2.new(1, 0, 0, targetH),
+                    GroupTransparency = 0
+                }):Play()
+            end
+
+            local function SelectColor(colItem)
+                selectedColorName = colItem.Name
+                selectedColorVal = colItem.Color
+                CurrentLabel.Text = colItem.Name
+                SelectedDot.BackgroundColor3 = colItem.Color
+
+                for name, item in pairs(optionButtons) do
+                    local isSel = (name == colItem.Name)
+                    TweenService:Create(item.Label, TweenFast, {TextColor3 = isSel and colItem.Color or Library.Theme.TextPrimary}):Play()
+                end
+
+                Window:SetAccent(colItem.Color)
+                CloseDrop()
+                pcall(callback, colItem.Color, colItem.Name)
+            end
+
+            for idx, colItem in ipairs(Library.AccentColors) do
+                local OptBtn = Instance.new("TextButton")
+                OptBtn.Name = "Opt_" .. colItem.Name
+                OptBtn.Size = UDim2.new(1, 0, 0, 26)
+                OptBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+                OptBtn.BackgroundTransparency = 1
+                OptBtn.AutoButtonColor = false
+                OptBtn.Text = ""
+                OptBtn.LayoutOrder = idx
+                OptBtn.ZIndex = zIndex + 16
+                OptBtn.Parent = DropdownList
+
+                local OptCorner = Instance.new("UICorner")
+                OptCorner.CornerRadius = UDim.new(0, 6)
+                OptCorner.Parent = OptBtn
+
+                local OptDot = Instance.new("Frame")
+                OptDot.Name = "Dot"
+                OptDot.Size = UDim2.new(0, 10, 0, 10)
+                OptDot.AnchorPoint = Vector2.new(0, 0.5)
+                OptDot.Position = UDim2.new(0, 10, 0.5, 0)
+                OptDot.BackgroundColor3 = colItem.Color
+                OptDot.BorderSizePixel = 0
+                OptDot.ZIndex = zIndex + 17
+                OptDot.Parent = OptBtn
+
+                local ODCorner = Instance.new("UICorner")
+                ODCorner.CornerRadius = UDim.new(1, 0)
+                ODCorner.Parent = OptDot
+
+                local OptLabel = Instance.new("TextLabel")
+                OptLabel.Text = colItem.Name
+                OptLabel.Font = Enum.Font.GothamMedium
+                OptLabel.TextSize = 12
+                OptLabel.TextColor3 = (colItem.Name == defaultColorName) and colItem.Color or Library.Theme.TextPrimary
+                OptLabel.TextXAlignment = Enum.TextXAlignment.Left
+                OptLabel.BackgroundTransparency = 1
+                OptLabel.Position = UDim2.new(0, 28, 0, 0)
+                OptLabel.Size = UDim2.new(1, -34, 1, 0)
+                OptLabel.ZIndex = zIndex + 17
+                OptLabel.Parent = OptBtn
+
+                optionButtons[colItem.Name] = {Button = OptBtn, Label = OptLabel, Dot = OptDot}
+
+                OptBtn.MouseEnter:Connect(function()
+                    TweenService:Create(OptBtn, TweenFast, {BackgroundTransparency = 0, BackgroundColor3 = Library.Theme.HoverLight}):Play()
+                end)
+                OptBtn.MouseLeave:Connect(function()
+                    TweenService:Create(OptBtn, TweenFast, {BackgroundTransparency = 1}):Play()
+                end)
+
+                OptBtn.MouseButton1Click:Connect(function()
+                    SelectColor(colItem)
+                end)
+                OptBtn.InputBegan:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                        SelectColor(colItem)
+                    end
+                end)
+            end
+
+            ComboMain.MouseButton1Click:Connect(function()
+                if isOpen then CloseDrop() else OpenDrop() end
+            end)
+
+            table.insert(Connections, UserInputService.InputBegan:Connect(function(input)
+                if isOpen and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+                    task.defer(function()
+                        if not isOpen then return end
+                        local mousePos = UserInputService:GetMouseLocation()
+                        local cPos = ComboContainer.AbsolutePosition
+                        local cSize = ComboContainer.AbsoluteSize
+                        local dPos = DropdownList.AbsolutePosition
+                        local dSize = DropdownList.AbsoluteSize
+
+                        local inCombo = (mousePos.X >= cPos.X and mousePos.X <= cPos.X + cSize.X and mousePos.Y >= cPos.Y and mousePos.Y <= cPos.Y + cSize.Y)
+                        local inDrop = (mousePos.X >= dPos.X and mousePos.X <= dPos.X + dSize.X and mousePos.Y >= dPos.Y and mousePos.Y <= dPos.Y + dSize.Y)
+
+                        if not inCombo and not inDrop then
+                            CloseDrop()
+                        end
+                    end)
+                end
+            end))
+
+            RegisterAccentListener(function(newColor)
+                SelectedDot.BackgroundColor3 = newColor
+            end)
+
+            return {
+                Select = function(self, colNameOrColor)
+                    for _, c in ipairs(Library.AccentColors) do
+                        if c.Name == colNameOrColor or c.Color == colNameOrColor then
+                            SelectColor(c)
+                            return
+                        end
+                    end
+                end,
+                Get = function()
+                    return selectedColorVal, selectedColorName
+                end,
                 Row = row
             }
         end
