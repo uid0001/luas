@@ -188,6 +188,8 @@ function Library:CreateWindow(config)
     ScreenGui.Name = "iOS18_Window_" .. tostring(math.random(10000, 99999))
     ScreenGui.ResetOnSpawn = false
     ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    ScreenGui.DisplayOrder = 999
+    ScreenGui.Enabled = true
 
     if config.Parent then
         ScreenGui.Parent = config.Parent
