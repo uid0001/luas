@@ -728,6 +728,8 @@ function Library:CreateWindow(config)
         RegisterAccentListener = RegisterAccentListener,
         SetAccent = SetAccent,
         GetAccent = function() return currentAccent end,
+        SetKeybind = function(self, newKey) menuKey = newKey end,
+        GetKeybind = function(self) return menuKey end,
         OpenConfirmModal = OpenConfirmModal,
         Notify = Notify
     }
